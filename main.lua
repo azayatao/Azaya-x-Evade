@@ -534,5 +534,30 @@ v97:CreateButton({
    end,
 })
 
+--// Tab: Waypoints (v99)
+local v99 = v91:CreateTab("📍 Waypoints", nil)
+
+local v100 = v99:CreateSection("Map Teleport")
+
+local v101 = {
+    ["🏊 Poolrooms"] = Vector3.new(91.64, 118.25, -1750.65),
+    ["🌈 Vibrance"]  = Vector3.new(22.00, 70.63, 106.00),
+}
+
+for v102, v103 in pairs(v101) do
+    local v104 = v103
+    v99:CreateButton({
+        Name = v102,
+        Callback = function()
+            pcall(function()
+                local v105, v106, v107 = v27()
+                if not v107 then return end
+                v107.CFrame = CFrame.new(v104)
+                v31("Teleported to " .. v102)
+            end)
+        end,
+    })
+end
+
 --// Notify Loaded
 v31("Script Loaded - Hover Mode Ready")
