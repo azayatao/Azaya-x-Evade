@@ -821,4 +821,188 @@ end
 --// NOTIFY LOADED
 --// ============================================================
 
+-- ============================================================
+-- ROUND DETECTOR
+-- ============================================================
+
+local v_roundPhase = "unknown"
+local v_onRoundStart = Instance.new("BindableEvent")
+local v_onRoundEnd   = Instance.new("BindableEvent")
+
+-- Coba detect round via ReplicatedStorage value/attribute
+task.spawn(function()
+    pcall(function()
+        local v_rs = v4
+        -- Cari StringValue atau attribute yang menyimpan phase
+        local v_phaseObj = nil
+        pcall(function()
+            v_phaseObj = v_rs:WaitForChild("GameData", 5)
+                             :WaitForChild("Phase", 5)
+        end)
+
+        if v_phaseObj and v_phaseObj:IsA("StringValue") then
+            v_phaseObj.Changed:Connect(function(p1)
+                local v_prev = v_roundPhase
+                v_roundPhase = p1
+                -- Sesuaikan string phase sesuai game Evade-mu
+                if p1 == "InGame" or p1 == "Round" then
+                    v_onRoundStart:Fire()
+                elseif p1 == "Intermission" or p1 == "Lobby" then
+                    v_onRoundEnd:Fire()
+                end
+            end)
+        end
+    end)
+end)
+
+-- Fallback: deteksi lewat CharacterAdded (respawn = round baru)
+v9.CharacterAdded:Connect(function()
+    task.wait(2)
+    pcall(function()
+        v_onRoundStart:Fire()
+    end)
+end)
+
+-- ============================================================
+-- AUTO ROUND CONFIG
+-- ============================================================
+
+local v_autoRound = {
+    Enabled       = false,
+    AutoTP        = false,   -- TP ke waypoint saat round start
+    AutoFly       = false,   -- Aktifkan fly saat round start
+    AutoFarm      = false,   -- Aktifkan auto farm win saat round start
+    TargetWP      = "",      -- Nama waypoint tujuan
+    DelaySeconds  = 2,       -- Delay setelah round start
+}
+
+-- ============================================================
+-- ROUND START HANDLER
+-- ============================================================
+
+v_onRoundStart.Event:Connect(function()
+    pcall(function()
+        if not v_autoRound.Enabled then return end
+        task.wait(v_autoRound.DelaySeconds)
+
+        if v_autoRound.AutoFly then
+            v33(true)
+            v31("🔄 Round Start → Fly ON")
+        end
+
+        if v_autoRound.AutoFarm then
+            v17 = true
+            v31("🔄 Round Start → Auto Farm ON")
+        end
+
+        if v_autoRound.AutoTP and v_autoRound.TargetWP ~= "" then
+            local _, _, r = v27()
+            if r then
+                local pos = v_wpData[v_autoRound.TargetWP]
+                if pos then
+                    r.CFrame = CFrame.new(pos)
+                    v31("🔄 Round Start → TP ke: " .. v_autoRound.TargetWP)
+                else
+                    v31("⚠️ Waypoint '" .. v_autoRound.TargetWP .. "' tidak ditemukan!")
+                end
+            end
+        end
+    end)
+end)
+
+-- Round end: reset otomatis
+v_onRoundEnd.Event:Connect(function()
+    pcall(function()
+        if not v_autoRound.Enabled then return end
+        if v_autoRound.AutoFarm then
+            v17 = false
+            v31("🔄 Round End → Auto Farm OFF")
+        end
+    end)
+end)
+
+-- ============================================================
+-- TAB: AUTO ROUND (Rayfield)
+-- ============================================================
+
+local v_tabRound = v91:CreateTab("🔄 Auto Round", nil)
+
+v_tabRound:CreateSection("⚙️ Master Switch")
+
+v_tabRound:CreateToggle({
+    Name = "Enable Auto Round",
+    CurrentValue = false,
+    Flag = "ToggleAutoRound",
+    Callback = function(p1)
+        v_autoRound.Enabled = p1
+        if p1 then
+            v31("🔄 Auto Round aktif — menunggu round start...", 3)
+        else
+            v31("Auto Round dimatikan")
+        end
+    end
+})
+
+v_tabRound:CreateSection("🚀 Aksi saat Round Start")
+
+v_tabRound:CreateToggle({
+    Name = "Auto Fly saat Round Start",
+    CurrentValue = false,
+    Flag = "ToggleRoundFly",
+    Callback = function(p1) v_autoRound.AutoFly = p1 end
+})
+
+v_tabRound:CreateToggle({
+    Name = "Auto Farm Win saat Round Start",
+    CurrentValue = false,
+    Flag = "ToggleRoundFarm",
+    Callback = function(p1) v_autoRound.AutoFarm = p1 end
+})
+
+v_tabRound:CreateToggle({
+    Name = "Auto TP ke Waypoint saat Round Start",
+    CurrentValue = false,
+    Flag = "ToggleRoundTP",
+    Callback = function(p1) v_autoRound.AutoTP = p1 end
+})
+
+v_tabRound:CreateSection("📍 Target Waypoint")
+
+v_tabRound:CreateLabel("Isi nama waypoint yang sudah disimpan di tab Waypoints.")
+
+v_tabRound:CreateInput({
+    Name = "Nama Waypoint Tujuan",
+    PlaceholderText = "Contoh: Spawn, Rooftop...",
+    RemoveTextAfterFocusLost = false,
+    Flag = "InputRoundWP",
+    Callback = function(p1) v_autoRound.TargetWP = p1 end
+})
+
+v_tabRound:CreateSlider({
+    Name = "Delay setelah Round Start",
+    Range = {0, 10},
+    Increment = 0.5,
+    Suffix = " detik",
+    CurrentValue = 2,
+    Flag = "SliderRoundDelay",
+    Callback = function(p1) v_autoRound.DelaySeconds = p1 end
+})
+
+v_tabRound:CreateSection("🔍 Debug")
+
+v_tabRound:CreateButton({
+    Name = "🔥 Simulasi Round Start (Test)",
+    Callback = function()
+        v_onRoundStart:Fire()
+        v31("🔥 Simulasi round start fired!", 3)
+    end
+})
+
+v_tabRound:CreateButton({
+    Name = "📡 Cek Phase Sekarang",
+    Callback = function()
+        v31("Phase saat ini: " .. tostring(v_roundPhase), 4)
+    end
+})
+
 v31("⚡ Azaya GUI X v4 loaded!\n" .. #v_wpOrder .. " waypoint dimuat.", 4)
