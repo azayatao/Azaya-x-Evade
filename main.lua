@@ -406,8 +406,7 @@ end
 
 --// ============================================================
 --// AUTO TP ROUND
---// Deteksi posisi berubah > 50 studs dalam 1 frame = spawn baru
---// Cooldown 3 detik supaya tidak fire berkali-kali
+--// Deteksi via CharacterAdded = spawn baru = round baru
 --// ============================================================
 
 local v_autoTPRound = {
@@ -415,43 +414,22 @@ local v_autoTPRound = {
     TargetWP = "",
 }
 
-local v_lastPos    = nil
-local v_tpCooldown = false
-local v_atpReady   = false  -- true setelah delay 2 detik sejak toggle ON
-
-v2.Heartbeat:Connect(function()
+v9.CharacterAdded:Connect(function(p1)
     pcall(function()
         if not v_autoTPRound.Enabled then return end
-        if not v_atpReady then return end
-        if v_tpCooldown then return end
         if v_autoTPRound.TargetWP == "" then return end
-
-        local _, _, r = v27()
-        if not r then v_lastPos = nil return end
-
-        local v_curPos = r.Position
-
-        if v_lastPos then
-            local v_delta = (v_curPos - v_lastPos).Magnitude
-            if v_delta > 50 then
-                v_tpCooldown = true
-                task.delay(3, function() v_tpCooldown = false end)
-
-                local v_dest = v_wpData[v_autoTPRound.TargetWP]
-                if v_dest then
-                    task.wait(0.5)
-                    local _, _, r2 = v27()
-                    if r2 then
-                        r2.CFrame = CFrame.new(v_dest)
-                        v31("🔄 Round baru! TP ke: " .. v_autoTPRound.TargetWP, 3)
-                    end
-                else
-                    v31("⚠️ Waypoint '" .. v_autoTPRound.TargetWP .. "' tidak ditemukan!", 3)
-                end
-            end
+        local h = p1:WaitForChild("Humanoid", 5)
+        local r = p1:WaitForChild("HumanoidRootPart", 5)
+        if not h or not r then return end
+        task.wait(0.8)
+        if not v_autoTPRound.Enabled then return end
+        local v_dest = v_wpData[v_autoTPRound.TargetWP]
+        if v_dest then
+            r.CFrame = CFrame.new(v_dest)
+            v31("🔄 Round baru! TP ke: " .. v_autoTPRound.TargetWP, 3)
+        else
+            v31("⚠️ Waypoint '" .. v_autoTPRound.TargetWP .. "' tidak ditemukan!", 3)
         end
-
-        v_lastPos = v_curPos
     end)
 end)
 
@@ -717,18 +695,7 @@ v_atpToggleBtn.Text = ""
 local function v_atpSetToggle(p1)
     pcall(function()
         v_autoTPRound.Enabled = p1
-        v_lastPos = nil
-        v_atpReady = false
         if p1 then
-            -- Ambil posisi sekarang sebagai baseline, delay 2 detik baru deteksi
-            task.spawn(function()
-                pcall(function()
-                    local _, _, r = v27()
-                    if r then v_lastPos = r.Position end
-                    task.wait(2)
-                    if v_autoTPRound.Enabled then v_atpReady = true end
-                end)
-            end)
             -- Geser knob ke kanan (ON)
             v_atpKnob.Position = UDim2.new(1, -24, 0.5, -11)
             v_atpKnob.BackgroundColor3 = Color3.fromRGB(80, 200, 80)
