@@ -2,6 +2,7 @@
 --// Azaya GUI X - v4 | Evade Edition
 --// Xeno & Delta Compatible
 --// Fix: duplicate button, hapus visual realtime via custom GUI
+--// New: Auto Round — deteksi round start otomatis
 
 --// Services
 local v1 = game:GetService("Players")
@@ -405,6 +406,169 @@ local function v_placeTeleporter(p1)
 end
 
 --// ============================================================
+--// ROUND DETECTOR
+--// Deteksi round start via 3 metode:
+--//   1. StringValue phase di ReplicatedStorage (jika ada)
+--//   2. IntValue round counter (jika ada)
+--//   3. Fallback: CharacterAdded (respawn = round baru)
+--// ============================================================
+
+local v_onRoundStart = Instance.new("BindableEvent")
+local v_onRoundEnd   = Instance.new("BindableEvent")
+local v_roundPhase   = "unknown"
+local v_roundCount   = 0
+local v_detectorMode = "fallback" -- untuk debug
+
+-- Metode 1 & 2: scan semua StringValue & IntValue di ReplicatedStorage
+task.spawn(function()
+    pcall(function()
+        task.wait(3) -- tunggu game selesai load
+
+        local v_phaseStrings = {
+            -- phase aktif (round berlangsung)
+            active   = { "InGame", "Round", "Game", "Playing", "Started", "Active", "Running" },
+            -- phase lobby/intermission
+            inactive = { "Intermission", "Lobby", "Waiting", "Ended", "End", "Vote", "MapVote" }
+        }
+
+        local function v_checkPhaseString(p1)
+            for _, s in ipairs(v_phaseStrings.active) do
+                if p1:lower():find(s:lower()) then return "active" end
+            end
+            for _, s in ipairs(v_phaseStrings.inactive) do
+                if p1:lower():find(s:lower()) then return "inactive" end
+            end
+            return nil
+        end
+
+        -- Cari StringValue yang berisi info phase
+        for _, v_obj in pairs(v4:GetDescendants()) do
+            pcall(function()
+                if v_obj:IsA("StringValue") then
+                    local v_match = v_checkPhaseString(tostring(v_obj.Value))
+                    if v_match then
+                        v_detectorMode = "StringValue:" .. v_obj:GetFullName()
+                        v_roundPhase = v_obj.Value
+
+                        v_obj.Changed:Connect(function(p1)
+                            local v_prev = v_roundPhase
+                            v_roundPhase = p1
+                            local v_state = v_checkPhaseString(p1)
+                            if v_state == "active" and v_checkPhaseString(v_prev) ~= "active" then
+                                v_onRoundStart:Fire()
+                            elseif v_state == "inactive" and v_checkPhaseString(v_prev) == "active" then
+                                v_onRoundEnd:Fire()
+                            end
+                        end)
+                        return
+                    end
+                end
+            end)
+        end
+
+        -- Cari IntValue yang naik setiap round (round counter)
+        for _, v_obj in pairs(v4:GetDescendants()) do
+            pcall(function()
+                if v_obj:IsA("IntValue") then
+                    local v_name = v_obj.Name:lower()
+                    if v_name:find("round") or v_name:find("game") or v_name:find("match") then
+                        local v_lastVal = v_obj.Value
+                        v_detectorMode = "IntValue:" .. v_obj:GetFullName()
+
+                        v_obj.Changed:Connect(function(p1)
+                            if p1 > v_lastVal then
+                                v_lastVal = p1
+                                v_roundCount = p1
+                                v_roundPhase = "round_" .. tostring(p1)
+                                v_onRoundStart:Fire()
+                            end
+                        end)
+                        return
+                    end
+                end
+            end)
+        end
+    end)
+end)
+
+-- Metode 3: Fallback via CharacterAdded
+-- Hanya aktif jika metode 1/2 tidak ketemu (detectorMode masih "fallback")
+v9.CharacterAdded:Connect(function()
+    task.wait(2)
+    pcall(function()
+        if v_detectorMode == "fallback" then
+            v_roundPhase = "char_added"
+            v_onRoundStart:Fire()
+        end
+    end)
+end)
+
+--// ============================================================
+--// AUTO ROUND CONFIG
+--// ============================================================
+
+local v_autoRound = {
+    Enabled      = false,
+    AutoTP       = false,
+    AutoFly      = false,
+    AutoFarm     = false,
+    AutoRevive   = false,
+    TargetWP     = "",
+    DelaySeconds = 2,
+}
+
+-- Round Start Handler
+v_onRoundStart.Event:Connect(function()
+    pcall(function()
+        if not v_autoRound.Enabled then return end
+        task.wait(v_autoRound.DelaySeconds)
+
+        if v_autoRound.AutoFly then
+            v33(true)
+            v31("🔄 Round Start → Fly ON")
+        end
+
+        if v_autoRound.AutoFarm then
+            v17 = true
+            v31("🔄 Round Start → Auto Farm ON")
+        end
+
+        if v_autoRound.AutoRevive then
+            v18 = true
+            v31("🔄 Round Start → Auto Revive ON")
+        end
+
+        if v_autoRound.AutoTP and v_autoRound.TargetWP ~= "" then
+            local _, _, r = v27()
+            if r then
+                local pos = v_wpData[v_autoRound.TargetWP]
+                if pos then
+                    r.CFrame = CFrame.new(pos)
+                    v31("🔄 Round Start → TP ke: " .. v_autoRound.TargetWP)
+                else
+                    v31("⚠️ Waypoint '" .. v_autoRound.TargetWP .. "' tidak ditemukan!")
+                end
+            end
+        end
+    end)
+end)
+
+-- Round End Handler
+v_onRoundEnd.Event:Connect(function()
+    pcall(function()
+        if not v_autoRound.Enabled then return end
+        if v_autoRound.AutoFarm then
+            v17 = false
+            v31("🔄 Round End → Auto Farm OFF")
+        end
+        if v_autoRound.AutoRevive then
+            v18 = false
+            v31("🔄 Round End → Auto Revive OFF")
+        end
+    end)
+end)
+
+--// ============================================================
 --// RAYFIELD SETUP
 --// ============================================================
 
@@ -494,9 +658,106 @@ v97:CreateButton({ Name = "Clear ESP", Callback = function()
 end })
 
 --// ============================================================
+--// TAB: AUTO ROUND
+--// ============================================================
+
+local v_tabRound = v91:CreateTab("🔄 Auto Round", nil)
+
+v_tabRound:CreateSection("⚙️ Master Switch")
+
+v_tabRound:CreateToggle({
+    Name = "Enable Auto Round",
+    CurrentValue = false,
+    Flag = "ToggleAutoRound",
+    Callback = function(p1)
+        v_autoRound.Enabled = p1
+        if p1 then
+            v31("🔄 Auto Round aktif!\nDetector: " .. v_detectorMode, 4)
+        else
+            v31("Auto Round dimatikan")
+        end
+    end
+})
+
+v_tabRound:CreateSection("🚀 Aksi saat Round Start")
+
+v_tabRound:CreateToggle({
+    Name = "Auto Fly",
+    CurrentValue = false,
+    Flag = "ToggleRoundFly",
+    Callback = function(p1) v_autoRound.AutoFly = p1 end
+})
+
+v_tabRound:CreateToggle({
+    Name = "Auto Farm Win",
+    CurrentValue = false,
+    Flag = "ToggleRoundFarm",
+    Callback = function(p1) v_autoRound.AutoFarm = p1 end
+})
+
+v_tabRound:CreateToggle({
+    Name = "Auto Revive",
+    CurrentValue = false,
+    Flag = "ToggleRoundRevive",
+    Callback = function(p1) v_autoRound.AutoRevive = p1 end
+})
+
+v_tabRound:CreateToggle({
+    Name = "Auto TP ke Waypoint",
+    CurrentValue = false,
+    Flag = "ToggleRoundTP",
+    Callback = function(p1) v_autoRound.AutoTP = p1 end
+})
+
+v_tabRound:CreateSection("📍 Target Waypoint")
+
+v_tabRound:CreateLabel("Isi nama waypoint yang sudah disimpan di tab Waypoints.")
+
+v_tabRound:CreateInput({
+    Name = "Nama Waypoint Tujuan",
+    PlaceholderText = "Contoh: Spawn, Rooftop...",
+    RemoveTextAfterFocusLost = false,
+    Flag = "InputRoundWP",
+    Callback = function(p1) v_autoRound.TargetWP = p1 end
+})
+
+v_tabRound:CreateSlider({
+    Name = "Delay setelah Round Start",
+    Range = {0, 10},
+    Increment = 0.5,
+    Suffix = " detik",
+    CurrentValue = 2,
+    Flag = "SliderRoundDelay",
+    Callback = function(p1) v_autoRound.DelaySeconds = p1 end
+})
+
+v_tabRound:CreateSection("🔍 Debug")
+
+v_tabRound:CreateButton({
+    Name = "🔥 Simulasi Round Start (Test)",
+    Callback = function()
+        v_onRoundStart:Fire()
+        v31("🔥 Simulasi round start fired!", 3)
+    end
+})
+
+v_tabRound:CreateButton({
+    Name = "🔥 Simulasi Round End (Test)",
+    Callback = function()
+        v_onRoundEnd:Fire()
+        v31("🔥 Simulasi round end fired!", 3)
+    end
+})
+
+v_tabRound:CreateButton({
+    Name = "📡 Cek Detector & Phase",
+    Callback = function()
+        v31("Detector: " .. v_detectorMode .. "\nPhase: " .. v_roundPhase, 5)
+    end
+})
+
+--// ============================================================
 --// CUSTOM WAYPOINT LIST GUI
---// Dibuat sebagai ScreenGui terpisah, di-render di atas Rayfield
---// Mendukung add/remove button secara realtime
 --// ============================================================
 
 local v_wpGui = Instance.new("ScreenGui")
@@ -505,8 +766,6 @@ v_wpGui.ResetOnSpawn = false
 v_wpGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 v_wpGui.Parent = v8
 
---// Container utama — posisi di bawah tab Waypoints & Teleporter
---// Akan di-toggle visibility sesuai tab aktif
 local v_wpFrame = Instance.new("Frame")
 v_wpFrame.Name = "WPFrame"
 v_wpFrame.Size = UDim2.new(0, 260, 0, 280)
@@ -525,7 +784,6 @@ v_wpStroke.Color = Color3.fromRGB(70, 70, 90)
 v_wpStroke.Thickness = 1
 v_wpStroke.Parent = v_wpFrame
 
---// Header bar
 local v_wpHeader = Instance.new("Frame")
 v_wpHeader.Size = UDim2.new(1, 0, 0, 32)
 v_wpHeader.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
@@ -536,7 +794,6 @@ local v_wpHCorner = Instance.new("UICorner")
 v_wpHCorner.CornerRadius = UDim.new(0, 8)
 v_wpHCorner.Parent = v_wpHeader
 
---// Title
 local v_wpTitle = Instance.new("TextLabel")
 v_wpTitle.Size = UDim2.new(1, -10, 1, 0)
 v_wpTitle.Position = UDim2.new(0, 10, 0, 0)
@@ -548,7 +805,6 @@ v_wpTitle.Font = Enum.Font.GothamBold
 v_wpTitle.TextXAlignment = Enum.TextXAlignment.Left
 v_wpTitle.Parent = v_wpHeader
 
---// Mode label (TP / Place Teleporter)
 local v_wpModeLabel = Instance.new("TextLabel")
 v_wpModeLabel.Size = UDim2.new(1, -10, 1, 0)
 v_wpModeLabel.Position = UDim2.new(0, 0, 0, 0)
@@ -558,11 +814,9 @@ v_wpModeLabel.TextColor3 = Color3.fromRGB(120, 200, 255)
 v_wpModeLabel.TextSize = 11
 v_wpModeLabel.Font = Enum.Font.Gotham
 v_wpModeLabel.TextXAlignment = Enum.TextXAlignment.Right
-v_wpModeLabel.Position = UDim2.new(0, 0, 0, 0)
 v_wpModeLabel.Size = UDim2.new(1, -10, 1, 0)
 v_wpModeLabel.Parent = v_wpHeader
 
---// ScrollingFrame untuk list
 local v_wpScroll = Instance.new("ScrollingFrame")
 v_wpScroll.Size = UDim2.new(1, -10, 1, -42)
 v_wpScroll.Position = UDim2.new(0, 5, 0, 37)
@@ -583,15 +837,11 @@ local v_wpPad = Instance.new("UIPadding")
 v_wpPad.PaddingTop = UDim.new(0, 4)
 v_wpPad.Parent = v_wpScroll
 
---// Mode saat ini: "tp" atau "place"
 local v_wpMode = "tp"
-
---// Table referensi row per waypoint name
 local v_wpRows = {}
 
---// Buat satu row waypoint di scroll list
 local function v_wpMakeRow(p1)
-    if v_wpRows[p1] then return end -- guard duplicate
+    if v_wpRows[p1] then return end
 
     local v_row = Instance.new("Frame")
     v_row.Name = "WP_" .. p1
@@ -604,7 +854,6 @@ local function v_wpMakeRow(p1)
     v_rowCorner.CornerRadius = UDim.new(0, 6)
     v_rowCorner.Parent = v_row
 
-    --// Nama waypoint
     local v_nameLabel = Instance.new("TextLabel")
     v_nameLabel.Size = UDim2.new(1, -80, 1, 0)
     v_nameLabel.Position = UDim2.new(0, 10, 0, 0)
@@ -617,7 +866,6 @@ local function v_wpMakeRow(p1)
     v_nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
     v_nameLabel.Parent = v_row
 
-    --// Tombol aksi (TP / Place)
     local v_actBtn = Instance.new("TextButton")
     v_actBtn.Size = UDim2.new(0, 46, 0, 24)
     v_actBtn.Position = UDim2.new(1, -78, 0.5, -12)
@@ -633,7 +881,6 @@ local function v_wpMakeRow(p1)
     v_actCorner.CornerRadius = UDim.new(0, 5)
     v_actCorner.Parent = v_actBtn
 
-    --// Tombol hapus
     local v_delBtn = Instance.new("TextButton")
     v_delBtn.Size = UDim2.new(0, 24, 0, 24)
     v_delBtn.Position = UDim2.new(1, -28, 0.5, -12)
@@ -649,7 +896,6 @@ local function v_wpMakeRow(p1)
     v_delCorner.CornerRadius = UDim.new(0, 5)
     v_delCorner.Parent = v_delBtn
 
-    --// Logic tombol aksi
     v_actBtn.MouseButton1Click:Connect(function()
         pcall(function()
             if v_wpMode == "tp" then
@@ -665,7 +911,6 @@ local function v_wpMakeRow(p1)
         end)
     end)
 
-    --// Logic tombol hapus — hapus dari file DAN dari GUI
     v_delBtn.MouseButton1Click:Connect(function()
         pcall(function()
             v_wpDelete(p1)
@@ -678,11 +923,8 @@ local function v_wpMakeRow(p1)
     v_wpRows[p1] = v_row
 end
 
---// Update label tombol aksi sesuai mode
 local function v_wpRefreshMode()
     for name, row in pairs(v_wpRows) do
-        local btn = row:FindFirstChild("TextButton") -- actBtn adalah TextButton pertama
-        -- cari by position
         for _, child in pairs(row:GetChildren()) do
             if child:IsA("TextButton") and child.Text ~= "✕" then
                 if v_wpMode == "tp" then
@@ -704,7 +946,7 @@ local function v_wpRefreshMode()
     end
 end
 
---// Draggable untuk custom frame
+--// Draggable
 local v_dragging = false
 local v_dragStart = nil
 local v_startPos = nil
@@ -736,7 +978,7 @@ v3.InputChanged:Connect(function(input)
 end)
 
 --// ============================================================
---// TAB: WAYPOINTS (Rayfield)
+--// TAB: WAYPOINTS
 --// ============================================================
 
 local v99 = v91:CreateTab("📍 Waypoints", nil)
@@ -793,7 +1035,7 @@ v99:CreateButton({ Name = "🧹  Clear All Waypoints", Callback = function()
 end })
 
 --// ============================================================
---// TAB: AUTO PUT TELEPORTER (Rayfield)
+--// TAB: TELEPORTER
 --// ============================================================
 
 local v_tabTP = v91:CreateTab("🛸 Teleporter", nil)
@@ -810,7 +1052,7 @@ v_tabTP:CreateButton({ Name = "🛸  Tampilkan / Sembunyikan List", Callback = f
 end })
 
 --// ============================================================
---// LOAD ROWS DARI FILE (setelah semua tab dibuat)
+--// LOAD ROWS DARI FILE
 --// ============================================================
 
 for _, name in ipairs(v_wpOrder) do
@@ -820,189 +1062,5 @@ end
 --// ============================================================
 --// NOTIFY LOADED
 --// ============================================================
-
--- ============================================================
--- ROUND DETECTOR
--- ============================================================
-
-local v_roundPhase = "unknown"
-local v_onRoundStart = Instance.new("BindableEvent")
-local v_onRoundEnd   = Instance.new("BindableEvent")
-
--- Coba detect round via ReplicatedStorage value/attribute
-task.spawn(function()
-    pcall(function()
-        local v_rs = v4
-        -- Cari StringValue atau attribute yang menyimpan phase
-        local v_phaseObj = nil
-        pcall(function()
-            v_phaseObj = v_rs:WaitForChild("GameData", 5)
-                             :WaitForChild("Phase", 5)
-        end)
-
-        if v_phaseObj and v_phaseObj:IsA("StringValue") then
-            v_phaseObj.Changed:Connect(function(p1)
-                local v_prev = v_roundPhase
-                v_roundPhase = p1
-                -- Sesuaikan string phase sesuai game Evade-mu
-                if p1 == "InGame" or p1 == "Round" then
-                    v_onRoundStart:Fire()
-                elseif p1 == "Intermission" or p1 == "Lobby" then
-                    v_onRoundEnd:Fire()
-                end
-            end)
-        end
-    end)
-end)
-
--- Fallback: deteksi lewat CharacterAdded (respawn = round baru)
-v9.CharacterAdded:Connect(function()
-    task.wait(2)
-    pcall(function()
-        v_onRoundStart:Fire()
-    end)
-end)
-
--- ============================================================
--- AUTO ROUND CONFIG
--- ============================================================
-
-local v_autoRound = {
-    Enabled       = false,
-    AutoTP        = false,   -- TP ke waypoint saat round start
-    AutoFly       = false,   -- Aktifkan fly saat round start
-    AutoFarm      = false,   -- Aktifkan auto farm win saat round start
-    TargetWP      = "",      -- Nama waypoint tujuan
-    DelaySeconds  = 2,       -- Delay setelah round start
-}
-
--- ============================================================
--- ROUND START HANDLER
--- ============================================================
-
-v_onRoundStart.Event:Connect(function()
-    pcall(function()
-        if not v_autoRound.Enabled then return end
-        task.wait(v_autoRound.DelaySeconds)
-
-        if v_autoRound.AutoFly then
-            v33(true)
-            v31("🔄 Round Start → Fly ON")
-        end
-
-        if v_autoRound.AutoFarm then
-            v17 = true
-            v31("🔄 Round Start → Auto Farm ON")
-        end
-
-        if v_autoRound.AutoTP and v_autoRound.TargetWP ~= "" then
-            local _, _, r = v27()
-            if r then
-                local pos = v_wpData[v_autoRound.TargetWP]
-                if pos then
-                    r.CFrame = CFrame.new(pos)
-                    v31("🔄 Round Start → TP ke: " .. v_autoRound.TargetWP)
-                else
-                    v31("⚠️ Waypoint '" .. v_autoRound.TargetWP .. "' tidak ditemukan!")
-                end
-            end
-        end
-    end)
-end)
-
--- Round end: reset otomatis
-v_onRoundEnd.Event:Connect(function()
-    pcall(function()
-        if not v_autoRound.Enabled then return end
-        if v_autoRound.AutoFarm then
-            v17 = false
-            v31("🔄 Round End → Auto Farm OFF")
-        end
-    end)
-end)
-
--- ============================================================
--- TAB: AUTO ROUND (Rayfield)
--- ============================================================
-
-local v_tabRound = v91:CreateTab("🔄 Auto Round", nil)
-
-v_tabRound:CreateSection("⚙️ Master Switch")
-
-v_tabRound:CreateToggle({
-    Name = "Enable Auto Round",
-    CurrentValue = false,
-    Flag = "ToggleAutoRound",
-    Callback = function(p1)
-        v_autoRound.Enabled = p1
-        if p1 then
-            v31("🔄 Auto Round aktif — menunggu round start...", 3)
-        else
-            v31("Auto Round dimatikan")
-        end
-    end
-})
-
-v_tabRound:CreateSection("🚀 Aksi saat Round Start")
-
-v_tabRound:CreateToggle({
-    Name = "Auto Fly saat Round Start",
-    CurrentValue = false,
-    Flag = "ToggleRoundFly",
-    Callback = function(p1) v_autoRound.AutoFly = p1 end
-})
-
-v_tabRound:CreateToggle({
-    Name = "Auto Farm Win saat Round Start",
-    CurrentValue = false,
-    Flag = "ToggleRoundFarm",
-    Callback = function(p1) v_autoRound.AutoFarm = p1 end
-})
-
-v_tabRound:CreateToggle({
-    Name = "Auto TP ke Waypoint saat Round Start",
-    CurrentValue = false,
-    Flag = "ToggleRoundTP",
-    Callback = function(p1) v_autoRound.AutoTP = p1 end
-})
-
-v_tabRound:CreateSection("📍 Target Waypoint")
-
-v_tabRound:CreateLabel("Isi nama waypoint yang sudah disimpan di tab Waypoints.")
-
-v_tabRound:CreateInput({
-    Name = "Nama Waypoint Tujuan",
-    PlaceholderText = "Contoh: Spawn, Rooftop...",
-    RemoveTextAfterFocusLost = false,
-    Flag = "InputRoundWP",
-    Callback = function(p1) v_autoRound.TargetWP = p1 end
-})
-
-v_tabRound:CreateSlider({
-    Name = "Delay setelah Round Start",
-    Range = {0, 10},
-    Increment = 0.5,
-    Suffix = " detik",
-    CurrentValue = 2,
-    Flag = "SliderRoundDelay",
-    Callback = function(p1) v_autoRound.DelaySeconds = p1 end
-})
-
-v_tabRound:CreateSection("🔍 Debug")
-
-v_tabRound:CreateButton({
-    Name = "🔥 Simulasi Round Start (Test)",
-    Callback = function()
-        v_onRoundStart:Fire()
-        v31("🔥 Simulasi round start fired!", 3)
-    end
-})
-
-v_tabRound:CreateButton({
-    Name = "📡 Cek Phase Sekarang",
-    Callback = function()
-        v31("Phase saat ini: " .. tostring(v_roundPhase), 4)
-    end
-})
 
 v31("⚡ Azaya GUI X v4 loaded!\n" .. #v_wpOrder .. " waypoint dimuat.", 4)
