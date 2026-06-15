@@ -1,8 +1,7 @@
 -- https://lua.expert/
 --// Azaya GUI X - v4 | Evade Edition
 --// Xeno & Delta Compatible
---// Fix: duplicate button, hapus visual realtime via custom GUI
---// New: Auto Round — deteksi round start otomatis
+--// Fix: crash removed, round detector pakai timer 3 menit
 
 --// Services
 local v1 = game:GetService("Players")
@@ -41,15 +40,15 @@ end)
 local v14 = { FlySpeed = 120, HoverHeight = 250, FarmDistance = 10 }
 
 --// Feature States
-local v15 = false -- Fly
-local v16 = false -- Noclip
-local v17 = false -- Auto Farm Win
-local v18 = false -- Auto Farm Revive
-local v19 = false -- Auto Map Vote
-local v20 = false -- Auto Whistle
-local v21 = false -- Auto Respawn
-local v22 = false -- ESP Player
-local v23 = false -- ESP Entity
+local v15 = false
+local v16 = false
+local v17 = false
+local v18 = false
+local v19 = false
+local v20 = false
+local v21 = false
+local v22 = false
+local v23 = false
 
 --// Fly Objects
 local v24, v25 = nil, nil
@@ -58,7 +57,7 @@ local v24, v25 = nil, nil
 local v26 = {}
 
 --// ============================================================
---// WAYPOINT SYSTEM (Permanent)
+--// WAYPOINT SYSTEM
 --// ============================================================
 
 local v_wpFolder = "AzayaGUI"
@@ -406,100 +405,42 @@ local function v_placeTeleporter(p1)
 end
 
 --// ============================================================
---// ROUND DETECTOR
---// Deteksi round start via 3 metode:
---//   1. StringValue phase di ReplicatedStorage (jika ada)
---//   2. IntValue round counter (jika ada)
---//   3. Fallback: CharacterAdded (respawn = round baru)
+--// ROUND DETECTOR — TIMER BASED (3 menit per round)
+--// Cara kerja:
+--//   - CharacterAdded = sinyal round baru dimulai
+--//   - Setelah 180 detik → fire RoundEnd otomatis
+--//   - Jika karakter spawn lagi sebelum 180 detik → reset timer
 --// ============================================================
 
 local v_onRoundStart = Instance.new("BindableEvent")
 local v_onRoundEnd   = Instance.new("BindableEvent")
-local v_roundPhase   = "unknown"
-local v_roundCount   = 0
-local v_detectorMode = "fallback" -- untuk debug
+local v_roundTimer   = nil   -- thread timer aktif
+local v_roundActive  = false
+local v_roundDuration = 180  -- detik, bisa diubah via slider
 
--- Metode 1 & 2: scan semua StringValue & IntValue di ReplicatedStorage
-task.spawn(function()
-    pcall(function()
-        task.wait(3) -- tunggu game selesai load
+local function v_startRoundTimer()
+    -- Batalkan timer lama jika ada
+    if v_roundTimer then
+        task.cancel(v_roundTimer)
+        v_roundTimer = nil
+    end
+    v_roundActive = true
+    v_onRoundStart:Fire()
 
-        local v_phaseStrings = {
-            -- phase aktif (round berlangsung)
-            active   = { "InGame", "Round", "Game", "Playing", "Started", "Active", "Running" },
-            -- phase lobby/intermission
-            inactive = { "Intermission", "Lobby", "Waiting", "Ended", "End", "Vote", "MapVote" }
-        }
-
-        local function v_checkPhaseString(p1)
-            for _, s in ipairs(v_phaseStrings.active) do
-                if p1:lower():find(s:lower()) then return "active" end
-            end
-            for _, s in ipairs(v_phaseStrings.inactive) do
-                if p1:lower():find(s:lower()) then return "inactive" end
-            end
-            return nil
-        end
-
-        -- Cari StringValue yang berisi info phase
-        for _, v_obj in pairs(v4:GetDescendants()) do
-            pcall(function()
-                if v_obj:IsA("StringValue") then
-                    local v_match = v_checkPhaseString(tostring(v_obj.Value))
-                    if v_match then
-                        v_detectorMode = "StringValue:" .. v_obj:GetFullName()
-                        v_roundPhase = v_obj.Value
-
-                        v_obj.Changed:Connect(function(p1)
-                            local v_prev = v_roundPhase
-                            v_roundPhase = p1
-                            local v_state = v_checkPhaseString(p1)
-                            if v_state == "active" and v_checkPhaseString(v_prev) ~= "active" then
-                                v_onRoundStart:Fire()
-                            elseif v_state == "inactive" and v_checkPhaseString(v_prev) == "active" then
-                                v_onRoundEnd:Fire()
-                            end
-                        end)
-                        return
-                    end
-                end
-            end)
-        end
-
-        -- Cari IntValue yang naik setiap round (round counter)
-        for _, v_obj in pairs(v4:GetDescendants()) do
-            pcall(function()
-                if v_obj:IsA("IntValue") then
-                    local v_name = v_obj.Name:lower()
-                    if v_name:find("round") or v_name:find("game") or v_name:find("match") then
-                        local v_lastVal = v_obj.Value
-                        v_detectorMode = "IntValue:" .. v_obj:GetFullName()
-
-                        v_obj.Changed:Connect(function(p1)
-                            if p1 > v_lastVal then
-                                v_lastVal = p1
-                                v_roundCount = p1
-                                v_roundPhase = "round_" .. tostring(p1)
-                                v_onRoundStart:Fire()
-                            end
-                        end)
-                        return
-                    end
-                end
-            end)
-        end
+    v_roundTimer = task.delay(v_roundDuration, function()
+        pcall(function()
+            v_roundActive = false
+            v_roundTimer = nil
+            v_onRoundEnd:Fire()
+        end)
     end)
-end)
+end
 
--- Metode 3: Fallback via CharacterAdded
--- Hanya aktif jika metode 1/2 tidak ketemu (detectorMode masih "fallback")
+-- Trigger: setiap karakter spawn = round baru
 v9.CharacterAdded:Connect(function()
-    task.wait(2)
+    task.wait(1.5) -- tunggu sebentar biar karakter fully loaded
     pcall(function()
-        if v_detectorMode == "fallback" then
-            v_roundPhase = "char_added"
-            v_onRoundStart:Fire()
-        end
+        v_startRoundTimer()
     end)
 end)
 
@@ -517,7 +458,7 @@ local v_autoRound = {
     DelaySeconds = 2,
 }
 
--- Round Start Handler
+-- Round Start: jalankan semua aksi yang diaktifkan
 v_onRoundStart.Event:Connect(function()
     pcall(function()
         if not v_autoRound.Enabled then return end
@@ -553,7 +494,7 @@ v_onRoundStart.Event:Connect(function()
     end)
 end)
 
--- Round End Handler
+-- Round End: matikan fitur farming
 v_onRoundEnd.Event:Connect(function()
     pcall(function()
         if not v_autoRound.Enabled then return end
@@ -565,6 +506,7 @@ v_onRoundEnd.Event:Connect(function()
             v18 = false
             v31("🔄 Round End → Auto Revive OFF")
         end
+        v31("⏱️ Round selesai (timer habis)", 3)
     end)
 end)
 
@@ -672,7 +614,7 @@ v_tabRound:CreateToggle({
     Callback = function(p1)
         v_autoRound.Enabled = p1
         if p1 then
-            v31("🔄 Auto Round aktif!\nDetector: " .. v_detectorMode, 4)
+            v31("🔄 Auto Round aktif!\nMenunggu spawn berikutnya...", 4)
         else
             v31("Auto Round dimatikan")
         end
@@ -721,8 +663,22 @@ v_tabRound:CreateInput({
     Callback = function(p1) v_autoRound.TargetWP = p1 end
 })
 
+v_tabRound:CreateSection("⏱️ Timer Setting")
+
+v_tabRound:CreateLabel("Evade = 3 menit per round. Ubah jika berbeda.")
+
 v_tabRound:CreateSlider({
-    Name = "Delay setelah Round Start",
+    Name = "Durasi Round",
+    Range = {60, 300},
+    Increment = 5,
+    Suffix = " detik",
+    CurrentValue = 180,
+    Flag = "SliderRoundDuration",
+    Callback = function(p1) v_roundDuration = p1 end
+})
+
+v_tabRound:CreateSlider({
+    Name = "Delay setelah Spawn",
     Range = {0, 10},
     Increment = 0.5,
     Suffix = " detik",
@@ -731,28 +687,23 @@ v_tabRound:CreateSlider({
     Callback = function(p1) v_autoRound.DelaySeconds = p1 end
 })
 
-v_tabRound:CreateSection("🔍 Debug")
+v_tabRound:CreateSection("🧪 Test Manual")
 
 v_tabRound:CreateButton({
-    Name = "🔥 Simulasi Round Start (Test)",
+    Name = "🔥 Simulasi Round Start",
     Callback = function()
-        v_onRoundStart:Fire()
-        v31("🔥 Simulasi round start fired!", 3)
+        v_startRoundTimer()
+        v31("🔥 Round Start disimulasikan!", 3)
     end
 })
 
 v_tabRound:CreateButton({
-    Name = "🔥 Simulasi Round End (Test)",
+    Name = "🔥 Simulasi Round End",
     Callback = function()
+        if v_roundTimer then task.cancel(v_roundTimer) v_roundTimer = nil end
+        v_roundActive = false
         v_onRoundEnd:Fire()
-        v31("🔥 Simulasi round end fired!", 3)
-    end
-})
-
-v_tabRound:CreateButton({
-    Name = "📡 Cek Detector & Phase",
-    Callback = function()
-        v31("Detector: " .. v_detectorMode .. "\nPhase: " .. v_roundPhase, 5)
+        v31("🔥 Round End disimulasikan!", 3)
     end
 })
 
