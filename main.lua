@@ -417,10 +417,12 @@ local v_autoTPRound = {
 
 local v_lastPos    = nil
 local v_tpCooldown = false
+local v_atpReady   = false  -- true setelah delay 2 detik sejak toggle ON
 
 v2.Heartbeat:Connect(function()
     pcall(function()
         if not v_autoTPRound.Enabled then return end
+        if not v_atpReady then return end
         if v_tpCooldown then return end
         if v_autoTPRound.TargetWP == "" then return end
 
@@ -716,7 +718,17 @@ local function v_atpSetToggle(p1)
     pcall(function()
         v_autoTPRound.Enabled = p1
         v_lastPos = nil
+        v_atpReady = false
         if p1 then
+            -- Ambil posisi sekarang sebagai baseline, delay 2 detik baru deteksi
+            task.spawn(function()
+                pcall(function()
+                    local _, _, r = v27()
+                    if r then v_lastPos = r.Position end
+                    task.wait(2)
+                    if v_autoTPRound.Enabled then v_atpReady = true end
+                end)
+            end)
             -- Geser knob ke kanan (ON)
             v_atpKnob.Position = UDim2.new(1, -24, 0.5, -11)
             v_atpKnob.BackgroundColor3 = Color3.fromRGB(80, 200, 80)
