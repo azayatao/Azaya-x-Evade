@@ -1,8 +1,9 @@
 -- https://lua.expert/
---// Azaya GUI X - Rayfield Edition (Hover + Dynamic Waypoints)
---// Optimized for Xeno & Evade
+--// Azaya GUI X - v3 | Evade Edition
+--// Xeno & Delta Compatible
+--// Features: Fly, Noclip, ESP, Auto Farm, Permanent Waypoints, Auto Put Teleporter
 
---// Services (v1 - v8)
+--// Services
 local v1 = game:GetService("Players")
 local v2 = game:GetService("RunService")
 local v3 = game:GetService("UserInputService")
@@ -12,17 +13,17 @@ local v6 = game:GetService("VirtualUser")
 local v7 = game:GetService("TeleportService")
 local v8 = game:GetService("CoreGui")
 
---// Player (v9)
+--// Player
 local v9 = v1.LocalPlayer
 
---// Anti Duplicate GUI
+--// Anti Duplicate
 pcall(function()
     if v8:FindFirstChild("AzayaGUI") then
         v8.AzayaGUI:Destroy()
     end
 end)
 
---// Remotes (v10 - v13)
+--// Remotes
 local v10 = nil
 local v11 = nil
 local v12 = nil
@@ -36,14 +37,20 @@ pcall(function()
     v13 = vTemp:WaitForChild("Data"):WaitForChild("Get")
 end)
 
---// Config (v14)
+--// DeployableUsed Remote
+local v_deployRemote = nil
+pcall(function()
+    v_deployRemote = v4:WaitForChild("Events"):WaitForChild("Other"):WaitForChild("DeployableUsed")
+end)
+
+--// Config
 local v14 = {
     FlySpeed = 120,
     HoverHeight = 250,
     FarmDistance = 10
 }
 
---// Feature States (v15 - v23)
+--// Feature States
 local v15 = false -- Fly
 local v16 = false -- Noclip
 local v17 = false -- Auto Farm Win
@@ -54,18 +61,89 @@ local v21 = false -- Auto Respawn
 local v22 = false -- ESP Player
 local v23 = false -- ESP Entity
 
---// Fly Objects (v24 - v25)
+--// Fly Objects
 local v24 = nil
 local v25 = nil
 
---// ESP Cache (v26)
+--// ESP Cache
 local v26 = {}
 
---// Waypoint Storage (v27_wp)
-local v27_wp = {}
-local v27_name = ""
+--// ============================================================
+--// WAYPOINT SYSTEM (Permanent)
+--// ============================================================
 
---// Character Helper
+local v_wpFolder = "AzayaGUI"
+local v_wpFile   = "AzayaGUI/waypoints.txt"
+local v_wpData   = {} -- { name = Vector3 }
+local v_wpOrder  = {} -- urutan simpan
+
+--// Pastikan folder ada
+pcall(function()
+    if not isfolder(v_wpFolder) then
+        makefolder(v_wpFolder)
+    end
+end)
+
+--// Parse file ke table
+local function v_wpLoad()
+    pcall(function()
+        if not isfile(v_wpFile) then return end
+        local v_raw = readfile(v_wpFile)
+        for v_line in v_raw:gmatch("[^\n]+") do
+            local v_n, v_x, v_y, v_z = v_line:match("^(.+)|(-?[%d%.]+)|(-?[%d%.]+)|(-?[%d%.]+)$")
+            if v_n and v_x and v_y and v_z then
+                v_wpData[v_n] = Vector3.new(tonumber(v_x), tonumber(v_y), tonumber(v_z))
+                table.insert(v_wpOrder, v_n)
+            end
+        end
+    end)
+end
+
+--// Tulis ulang file dari table
+local function v_wpSave()
+    pcall(function()
+        local v_out = ""
+        for _, v_n in ipairs(v_wpOrder) do
+            if v_wpData[v_n] then
+                local v_pos = v_wpData[v_n]
+                v_out = v_out .. v_n .. "|" .. math.floor(v_pos.X*100)/100 .. "|" .. math.floor(v_pos.Y*100)/100 .. "|" .. math.floor(v_pos.Z*100)/100 .. "\n"
+            end
+        end
+        writefile(v_wpFile, v_out)
+    end)
+end
+
+--// Tambah waypoint baru
+local function v_wpAdd(p1, p2)
+    if v_wpData[p1] then
+        -- update existing
+        v_wpData[p1] = p2
+    else
+        v_wpData[p1] = p2
+        table.insert(v_wpOrder, p1)
+    end
+    v_wpSave()
+end
+
+--// Hapus waypoint
+local function v_wpDelete(p1)
+    v_wpData[p1] = nil
+    for v_i, v_n in ipairs(v_wpOrder) do
+        if v_n == p1 then
+            table.remove(v_wpOrder, v_i)
+            break
+        end
+    end
+    v_wpSave()
+end
+
+--// Load saat startup
+v_wpLoad()
+
+--// ============================================================
+--// CHARACTER HELPER
+--// ============================================================
+
 local function v27()
     local v28 = nil
     local v29 = nil
@@ -82,22 +160,28 @@ local function v27()
     return v28, v29, v30
 end
 
---// Notify
-local function v31(p1)
+--// ============================================================
+--// NOTIFY
+--// ============================================================
+
+local function v31(p1, p2)
     pcall(function()
         print("[Azaya X]:", p1)
         if Rayfield then
             Rayfield:Notify({
                 Title = "Azaya X",
                 Content = p1,
-                Duration = 3,
+                Duration = p2 or 3,
                 Image = 4483345998
             })
         end
     end)
 end
 
---// Remove Fly
+--// ============================================================
+--// FLY SYSTEM
+--// ============================================================
+
 local function v32()
     pcall(function()
         if v24 then v24:Destroy() v24 = nil end
@@ -105,11 +189,10 @@ local function v32()
     end)
 end
 
---// Toggle Fly
 local function v33(p1)
     v15 = p1
     pcall(function()
-        local v34, v35, v36 = v27()
+        local _, _, v36 = v27()
         if not v36 then return end
         if v15 then
             v32()
@@ -122,22 +205,21 @@ local function v33(p1)
             v24.ForceLimitsEnabled = false
             v24.VectorVelocity = Vector3.zero
             v24.Parent = v36
-            v31("Fly Enabled")
+            v31("✈️ Fly aktif")
         else
             v32()
-            v31("Fly Disabled")
+            v31("Fly dimatikan")
         end
     end)
 end
 
---// Fly Loop
 v2.RenderStepped:Connect(function()
     pcall(function()
         if not v15 then return end
         if v17 then return end
         local v37 = workspace.CurrentCamera
         if not v37 then return end
-        local v38, v39, v40 = v27()
+        local _, _, v40 = v27()
         if not v40 then return end
         if not v24 or not v24.Parent then
             if v15 then v33(true) end
@@ -154,7 +236,6 @@ v2.RenderStepped:Connect(function()
     end)
 end)
 
---// Recreate Fly After Respawn
 v9.CharacterAdded:Connect(function()
     task.wait(1)
     pcall(function()
@@ -162,13 +243,16 @@ v9.CharacterAdded:Connect(function()
     end)
 end)
 
---// Noclip Loop
+--// ============================================================
+--// NOCLIP
+--// ============================================================
+
 v2.Stepped:Connect(function()
     pcall(function()
         if not v16 then return end
         local v42 = v9.Character
         if not v42 then return end
-        for v43, v44 in pairs(v42:GetDescendants()) do
+        for _, v44 in pairs(v42:GetDescendants()) do
             if v44:IsA("BasePart") then
                 v44.CanCollide = false
             end
@@ -176,12 +260,15 @@ v2.Stepped:Connect(function()
     end)
 end)
 
---// Auto Farm Win Loop
+--// ============================================================
+--// AUTO FARM WIN (HOVER)
+--// ============================================================
+
 task.spawn(function()
     while task.wait(0.2) do
         pcall(function()
             if not v17 then return end
-            local v45, v46, v47 = v27()
+            local _, _, v47 = v27()
             if not v47 then return end
             if not v15 then v33(true) end
             local v48 = Vector3.new(v47.Position.X, v14.HoverHeight, v47.Position.Z)
@@ -196,14 +283,17 @@ task.spawn(function()
     end
 end)
 
---// Auto Farm Revive Loop
+--// ============================================================
+--// AUTO FARM REVIVE
+--// ============================================================
+
 task.spawn(function()
     while task.wait(1) do
         pcall(function()
             if not v18 then return end
-            local v50, v51, v52 = v27()
+            local _, _, v52 = v27()
             if not v52 then return end
-            for v53, v54 in pairs(v1:GetPlayers()) do
+            for _, v54 in pairs(v1:GetPlayers()) do
                 if v54 ~= v9 and v54.Character then
                     local v55 = v54.Character:FindFirstChild("Humanoid")
                     local v56 = v54.Character:FindFirstChild("HumanoidRootPart")
@@ -217,7 +307,10 @@ task.spawn(function()
     end
 end)
 
---// Auto Map Vote Loop
+--// ============================================================
+--// AUTO MAP VOTE
+--// ============================================================
+
 task.spawn(function()
     while task.wait(5) do
         pcall(function()
@@ -232,7 +325,10 @@ task.spawn(function()
     end
 end)
 
---// Auto Whistle Loop
+--// ============================================================
+--// AUTO WHISTLE
+--// ============================================================
+
 task.spawn(function()
     while task.wait(3) do
         pcall(function()
@@ -243,7 +339,10 @@ task.spawn(function()
     end
 end)
 
---// Auto Respawn Handler
+--// ============================================================
+--// AUTO RESPAWN
+--// ============================================================
+
 v9.CharacterAdded:Connect(function(p1)
     pcall(function()
         local v59 = p1:WaitForChild("Humanoid")
@@ -256,8 +355,11 @@ v9.CharacterAdded:Connect(function(p1)
     end)
 end)
 
---// ESP Create
-local function v59(p1, p2)
+--// ============================================================
+--// ESP
+--// ============================================================
+
+local function v_espCreate(p1, p2)
     pcall(function()
         if not p1 then return end
         if p1:FindFirstChild("AzayaESP") then return end
@@ -271,36 +373,31 @@ local function v59(p1, p2)
     end)
 end
 
---// Clear ESP
 local function v61()
     pcall(function()
-        for v62, v63 in pairs(v26) do
+        for _, v63 in pairs(v26) do
             if v63 then v63:Destroy() end
         end
         v26 = {}
     end)
 end
 
---// ESP Loop
 task.spawn(function()
     while task.wait(1) do
         pcall(function()
-            if not v22 and not v23 then
-                v61()
-                return
-            end
+            if not v22 and not v23 then v61() return end
             if v22 then
-                for v64, v65 in pairs(v1:GetPlayers()) do
+                for _, v65 in pairs(v1:GetPlayers()) do
                     if v65 ~= v9 and v65.Character then
-                        v59(v65.Character, Color3.fromRGB(0, 255, 0))
+                        v_espCreate(v65.Character, Color3.fromRGB(0, 255, 0))
                     end
                 end
             end
             if v23 then
-                for v66, v67 in pairs(v5:GetChildren()) do
+                for _, v67 in pairs(v5:GetChildren()) do
                     if v67:IsA("Model") and v67:FindFirstChild("Humanoid") then
                         if not v1:GetPlayerFromCharacter(v67) then
-                            v59(v67, Color3.fromRGB(255, 0, 0))
+                            v_espCreate(v67, Color3.fromRGB(255, 0, 0))
                         end
                     end
                 end
@@ -309,17 +406,23 @@ task.spawn(function()
     end
 end)
 
---// Teleport Out
+--// ============================================================
+--// TELEPORT OUT
+--// ============================================================
+
 local function v68()
     pcall(function()
-        local v69, v70, v71 = v27()
+        local _, _, v71 = v27()
         if not v71 then return end
         v71.CFrame = CFrame.new(0, -500, 0)
-        v31("Teleported Out of Map")
+        v31("🚀 Teleported out of map")
     end)
 end
 
---// Anti AFK
+--// ============================================================
+--// ANTI AFK
+--// ============================================================
+
 v9.Idled:Connect(function()
     pcall(function()
         v6:CaptureController()
@@ -327,16 +430,64 @@ v9.Idled:Connect(function()
     end)
 end)
 
---// ==========================================================
---// RAYFIELD GUI SETUP
---// ==========================================================
+--// ============================================================
+--// AUTO PUT TELEPORTER
+--// ============================================================
+
+local function v_placeTeleporter(p1)
+    -- p1 = nama waypoint
+    pcall(function()
+        local v_pos = v_wpData[p1]
+        if not v_pos then
+            v31("❌ Waypoint tidak ditemukan!")
+            return
+        end
+
+        local _, _, v_hrp = v27()
+        if not v_hrp then
+            v31("❌ Character tidak ditemukan!")
+            return
+        end
+
+        v31("🔄 Placing teleporter di " .. p1 .. "...")
+
+        -- 1. TP ke posisi waypoint
+        v_hrp.CFrame = CFrame.new(v_pos)
+        task.wait(0.3)
+
+        -- 2. Tilt kamera ke bawah agar placement valid (tidak merah)
+        local v_cam = workspace.CurrentCamera
+        if v_cam then
+            local v_camPos = v_hrp.Position + Vector3.new(0, 2, 0)
+            local v_lookDown = CFrame.new(v_camPos, v_camPos + Vector3.new(0, -1, 1))
+            v_cam.CFrame = v_lookDown
+        end
+        task.wait(0.2)
+
+        -- 3. Fire DeployableUsed untuk equip/preview Teleporter
+        if v_deployRemote then
+            v_deployRemote:FireServer("Teleporter", true)
+        end
+        task.wait(0.3)
+
+        -- 4. Simulate mouse click untuk confirm placement
+        mouse1click()
+
+        task.wait(0.2)
+        v31("✅ Teleporter placed di " .. p1)
+    end)
+end
+
+--// ============================================================
+--// RAYFIELD GUI
+--// ============================================================
 
 local v90 = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local v91 = v90:CreateWindow({
-    Name = "Azaya GUI X | Hover Mode",
-    LoadingTitle = "Azaya Interface",
-    LoadingSubtitle = "Optimized for Evade",
+    Name = "⚡ Azaya GUI X  •  Evade",
+    LoadingTitle = "Azaya Interface Suite",
+    LoadingSubtitle = "by Azaya • v3",
     ConfigurationSaving = {
         Enabled = true,
         FolderName = "AzayaGUI",
@@ -350,13 +501,16 @@ local v91 = v90:CreateWindow({
     KeySystem = false
 })
 
---// Tab: Player (v92)
-local v92 = v91:CreateTab("Player", nil)
+--// ============================================================
+--// TAB: PLAYER
+--// ============================================================
 
-v92:CreateSection("Movement")
+local v92 = v91:CreateTab("🏠 Player", nil)
+
+v92:CreateSection("✈️ Movement")
 
 v92:CreateToggle({
-    Name = "Fly (Manual)",
+    Name = "Fly",
     CurrentValue = false,
     Flag = "ToggleFly",
     Callback = function(p1)
@@ -368,7 +522,7 @@ v92:CreateSlider({
     Name = "Fly Speed",
     Range = {1, 300},
     Increment = 1,
-    Suffix = "Speed",
+    Suffix = " studs/s",
     CurrentValue = 120,
     Flag = "SliderFlySpeed",
     Callback = function(p1)
@@ -385,19 +539,7 @@ v92:CreateToggle({
     end,
 })
 
-v92:CreateSlider({
-    Name = "Hover Height (Farm Height)",
-    Range = {50, 1000},
-    Increment = 10,
-    Suffix = "Studs",
-    CurrentValue = 250,
-    Flag = "SliderHoverHeight",
-    Callback = function(p1)
-        v14.HoverHeight = p1
-    end,
-})
-
-v92:CreateSection("Character")
+v92:CreateSection("🧍 Character")
 
 v92:CreateToggle({
     Name = "Auto Respawn",
@@ -409,35 +551,58 @@ v92:CreateToggle({
 })
 
 v92:CreateButton({
-    Name = "Teleport Out Map",
+    Name = "Teleport Out of Map",
     Callback = function()
         v68()
     end,
 })
 
---// Tab: Auto Farm (v95)
-local v95 = v91:CreateTab("Auto Farm", nil)
+--// ============================================================
+--// TAB: AUTO FARM
+--// ============================================================
 
-v95:CreateSection("Automation")
+local v95 = v91:CreateTab("🌾 Auto Farm", nil)
+
+v95:CreateSection("🏆 Win Farming")
 
 v95:CreateToggle({
-    Name = "Auto Farm Win (Hover Sky)",
+    Name = "Auto Farm Win  (Hover Sky)",
     CurrentValue = false,
     Flag = "ToggleFarmWin",
     Callback = function(p1)
         v17 = p1
-        if p1 then v31("Auto Farm: Flying to Sky...") else v31("Auto Farm: Stopped") end
+        if p1 then
+            v31("🌾 Auto Farm aktif — terbang ke langit...")
+        else
+            v31("Auto Farm dimatikan")
+        end
     end,
 })
 
+v95:CreateSlider({
+    Name = "Hover Height",
+    Range = {50, 1000},
+    Increment = 10,
+    Suffix = " studs",
+    CurrentValue = 250,
+    Flag = "SliderHoverHeight",
+    Callback = function(p1)
+        v14.HoverHeight = p1
+    end,
+})
+
+v95:CreateSection("🤝 Team Support")
+
 v95:CreateToggle({
-    Name = "Auto Farm Revive",
+    Name = "Auto Revive",
     CurrentValue = false,
     Flag = "ToggleRevive",
     Callback = function(p1)
         v18 = p1
     end,
 })
+
+v95:CreateSection("🗺️ Utility")
 
 v95:CreateToggle({
     Name = "Auto Map Vote",
@@ -457,13 +622,16 @@ v95:CreateToggle({
     end,
 })
 
---// Tab: Visuals (v97)
-local v97 = v91:CreateTab("Visuals", nil)
+--// ============================================================
+--// TAB: VISUALS
+--// ============================================================
 
-v97:CreateSection("ESP Settings")
+local v97 = v91:CreateTab("👁️ Visuals", nil)
+
+v97:CreateSection("ESP")
 
 v97:CreateToggle({
-    Name = "ESP Player",
+    Name = "ESP Player  (Hijau)",
     CurrentValue = false,
     Flag = "ToggleESPPlayer",
     Callback = function(p1)
@@ -472,7 +640,7 @@ v97:CreateToggle({
 })
 
 v97:CreateToggle({
-    Name = "ESP Entity",
+    Name = "ESP Entity  (Merah)",
     CurrentValue = false,
     Flag = "ToggleESPEntity",
     Callback = function(p1)
@@ -486,69 +654,141 @@ v97:CreateButton({
         v61()
         v22 = false
         v23 = false
-        v31("ESP Cleared")
+        v31("ESP dihapus")
     end,
 })
 
---// Tab: Waypoints (v99)
-local v99 = v91:CreateTab("Waypoints", nil)
+--// ============================================================
+--// TAB: WAYPOINTS
+--// ============================================================
 
-v99:CreateSection("Custom Waypoints")
+local v99 = v91:CreateTab("📍 Waypoints", nil)
+
+v99:CreateSection("💾 Simpan Posisi")
+
+--// Label info
+v99:CreateLabel("Waypoint tersimpan permanen di file lokal.")
+
+local v_wpNameInput = ""
 
 v99:CreateInput({
-    Name = "Waypoint Name",
-    PlaceholderText = "Ketik nama waypoint...",
+    Name = "Nama Waypoint",
+    PlaceholderText = "Contoh: Spawn, Rooftop...",
     RemoveTextAfterFocusLost = false,
     Flag = "InputWaypointName",
     Callback = function(p1)
-        v27_name = p1
+        v_wpNameInput = p1
     end,
 })
 
---// Fungsi buat button waypoint baru
-local function v_addwp(p1)
+--// Tab teleporter (forward declare, diisi setelah tab dibuat)
+local v_tabTP = nil
+
+--// Fungsi buat button waypoint + button teleporter (dipanggil saat load & saat save baru)
+local function v_makeWpButtons(p1)
+    -- Button di tab Waypoints
     v99:CreateButton({
-        Name = "TP: " .. p1,
+        Name = "🔵 TP: " .. p1,
         Callback = function()
             pcall(function()
-                local v_ch, v_hm, v_hrp = v27()
+                local _, _, v_hrp = v27()
                 if not v_hrp then return end
-                v_hrp.CFrame = CFrame.new(v27_wp[p1])
-                v31("Teleported to " .. p1)
+                local v_pos = v_wpData[p1]
+                if not v_pos then return end
+                v_hrp.CFrame = CFrame.new(v_pos)
+                v31("📍 Teleported ke " .. p1)
             end)
         end,
     })
+    -- Button di tab Auto Put Teleporter (jika sudah ada)
+    if v_tabTP then
+        v_tabTP:CreateButton({
+            Name = "🛸 Place di: " .. p1,
+            Callback = function()
+                v_placeTeleporter(p1)
+            end,
+        })
+    end
 end
 
 v99:CreateButton({
-    Name = "Save Current Position",
+    Name = "💾  Save Current Position",
     Callback = function()
         pcall(function()
-            if v27_name == "" then
-                v31("Isi nama waypoint dulu!")
+            if v_wpNameInput == "" then
+                v31("⚠️ Isi nama waypoint dulu!")
                 return
             end
-            local v_ch, v_hm, v_hrp = v27()
+            local _, _, v_hrp = v27()
             if not v_hrp then
-                v31("Character tidak ditemukan!")
+                v31("❌ Character tidak ditemukan!")
                 return
             end
             local v_pos = v_hrp.Position
-            v27_wp[v27_name] = v_pos
-            v_addwp(v27_name)
-            v31("Waypoint '" .. v27_name .. "' disimpan!")
-            v27_name = ""
+            local v_isNew = (v_wpData[v_wpNameInput] == nil)
+            v_wpAdd(v_wpNameInput, v_pos)
+            if v_isNew then
+                v_makeWpButtons(v_wpNameInput)
+            end
+            v31("✅ '" .. v_wpNameInput .. "' disimpan!\nX:" .. math.floor(v_pos.X) .. " Y:" .. math.floor(v_pos.Y) .. " Z:" .. math.floor(v_pos.Z), 4)
+            v_wpNameInput = ""
+        end)
+    end,
+})
+
+v99:CreateSection("🗑️ Kelola Waypoint")
+
+v99:CreateButton({
+    Name = "❌  Hapus Waypoint (by nama)",
+    Callback = function()
+        pcall(function()
+            if v_wpNameInput == "" then
+                v31("⚠️ Isi nama waypoint yang ingin dihapus di input!")
+                return
+            end
+            if not v_wpData[v_wpNameInput] then
+                v31("❌ Waypoint '" .. v_wpNameInput .. "' tidak ditemukan!")
+                return
+            end
+            v_wpDelete(v_wpNameInput)
+            v31("🗑️ '" .. v_wpNameInput .. "' dihapus.\nReload script untuk refresh tombol.", 4)
+            v_wpNameInput = ""
         end)
     end,
 })
 
 v99:CreateButton({
-    Name = "Clear All Waypoints",
+    Name = "🧹  Clear All Waypoints",
     Callback = function()
-        v27_wp = {}
-        v31("Data waypoint dihapus. Re-run script untuk reset tombol.")
+        pcall(function()
+            v_wpData = {}
+            v_wpOrder = {}
+            v_wpSave()
+            v31("🧹 Semua waypoint dihapus.\nReload script untuk refresh tombol.", 4)
+        end)
     end,
 })
 
---// Notify Loaded
-v31("Script Loaded - Hover Mode Ready")
+--// ============================================================
+--// TAB: AUTO PUT TELEPORTER
+--// ============================================================
+
+v_tabTP = v91:CreateTab("🛸 Teleporter", nil)
+
+v_tabTP:CreateSection("⚙️ Cara Pakai")
+v_tabTP:CreateLabel("Klik tombol di bawah → karakter TP ke waypoint → Teleporter otomatis di-place.")
+v_tabTP:CreateLabel("Pastikan kamu punya item Teleporter di loadout.")
+
+v_tabTP:CreateSection("📍 Pilih Waypoint")
+
+--// Load waypoint yang sudah ada saat startup (untuk kedua tab)
+for _, v_n in ipairs(v_wpOrder) do
+    v_makeWpButtons(v_n)
+end
+
+--// ============================================================
+--// NOTIFY LOADED
+--// ============================================================
+
+local v_wpCount = #v_wpOrder
+v31("⚡ Azaya GUI X v3 loaded!\n" .. v_wpCount .. " waypoint dimuat.", 4)
