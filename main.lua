@@ -617,7 +617,7 @@ v_wpPad.PaddingTop = UDim.new(0, 4)
 
 local v_atpFrame = Instance.new("Frame", v_wpGui)
 v_atpFrame.Name = "ATPFrame"
-v_atpFrame.Size = UDim2.new(0, 240, 0, 115)
+v_atpFrame.Size = UDim2.new(0, 240, 0, 125)
 v_atpFrame.Position = UDim2.new(0.5, 140, 0.5, 20)
 v_atpFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
 v_atpFrame.BorderSizePixel = 0
@@ -667,39 +667,86 @@ v_atpTargetLabel.TextSize = 11
 v_atpTargetLabel.Font = Enum.Font.Gotham
 v_atpTargetLabel.TextXAlignment = Enum.TextXAlignment.Left
 
---// Tombol toggle
-local v_atpToggleBtn = Instance.new("TextButton", v_atpFrame)
-v_atpToggleBtn.Size = UDim2.new(1, -20, 0, 28)
-v_atpToggleBtn.Position = UDim2.new(0, 10, 0, 78)
-v_atpToggleBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 60)
-v_atpToggleBtn.BorderSizePixel = 0
-v_atpToggleBtn.Text = "▶ Aktifkan"
-v_atpToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-v_atpToggleBtn.TextSize = 12
-v_atpToggleBtn.Font = Enum.Font.GothamBold
-Instance.new("UICorner", v_atpToggleBtn).CornerRadius = UDim.new(0, 6)
+--// Toggle geser (slider ON/OFF)
+--// Track (background)
+local v_atpTrack = Instance.new("Frame", v_atpFrame)
+v_atpTrack.Size = UDim2.new(0, 54, 0, 26)
+v_atpTrack.Position = UDim2.new(0.5, -27, 0, 88)
+v_atpTrack.BackgroundColor3 = Color3.fromRGB(80, 40, 40)
+v_atpTrack.BorderSizePixel = 0
+Instance.new("UICorner", v_atpTrack).CornerRadius = UDim.new(1, 0)
+
+--// Label OFF (kiri)
+local v_atpLabelOff = Instance.new("TextLabel", v_atpFrame)
+v_atpLabelOff.Size = UDim2.new(0, 30, 0, 26)
+v_atpLabelOff.Position = UDim2.new(0.5, -27 - 34, 0, 88)
+v_atpLabelOff.BackgroundTransparency = 1
+v_atpLabelOff.Text = "OFF"
+v_atpLabelOff.TextColor3 = Color3.fromRGB(180, 80, 80)
+v_atpLabelOff.TextSize = 10
+v_atpLabelOff.Font = Enum.Font.GothamBold
+v_atpLabelOff.TextXAlignment = Enum.TextXAlignment.Right
+
+--// Label ON (kanan)
+local v_atpLabelOn = Instance.new("TextLabel", v_atpFrame)
+v_atpLabelOn.Size = UDim2.new(0, 30, 0, 26)
+v_atpLabelOn.Position = UDim2.new(0.5, -27 + 58, 0, 88)
+v_atpLabelOn.BackgroundTransparency = 1
+v_atpLabelOn.Text = "ON"
+v_atpLabelOn.TextColor3 = Color3.fromRGB(100, 100, 120)
+v_atpLabelOn.TextSize = 10
+v_atpLabelOn.Font = Enum.Font.GothamBold
+v_atpLabelOn.TextXAlignment = Enum.TextXAlignment.Left
+
+--// Knob (bulatan geser)
+local v_atpKnob = Instance.new("Frame", v_atpTrack)
+v_atpKnob.Size = UDim2.new(0, 22, 0, 22)
+v_atpKnob.Position = UDim2.new(0, 2, 0.5, -11)
+v_atpKnob.BackgroundColor3 = Color3.fromRGB(200, 80, 80)
+v_atpKnob.BorderSizePixel = 0
+Instance.new("UICorner", v_atpKnob).CornerRadius = UDim.new(1, 0)
+
+--// Invisible button di atas track supaya bisa diklik
+local v_atpToggleBtn = Instance.new("TextButton", v_atpTrack)
+v_atpToggleBtn.Size = UDim2.new(1, 0, 1, 0)
+v_atpToggleBtn.BackgroundTransparency = 1
+v_atpToggleBtn.Text = ""
+
+local function v_atpSetToggle(p1)
+    pcall(function()
+        v_autoTPRound.Enabled = p1
+        v_lastPos = nil
+        if p1 then
+            -- Geser knob ke kanan (ON)
+            v_atpKnob.Position = UDim2.new(1, -24, 0.5, -11)
+            v_atpKnob.BackgroundColor3 = Color3.fromRGB(80, 200, 80)
+            v_atpTrack.BackgroundColor3 = Color3.fromRGB(40, 100, 40)
+            v_atpStatusLabel.Text = "Status: ON"
+            v_atpStatusLabel.TextColor3 = Color3.fromRGB(80, 200, 80)
+            v_atpLabelOn.TextColor3 = Color3.fromRGB(80, 200, 80)
+            v_atpLabelOff.TextColor3 = Color3.fromRGB(100, 100, 120)
+            v31("🔄 Auto TP Round ON → " .. v_autoTPRound.TargetWP, 3)
+        else
+            -- Geser knob ke kiri (OFF)
+            v_atpKnob.Position = UDim2.new(0, 2, 0.5, -11)
+            v_atpKnob.BackgroundColor3 = Color3.fromRGB(200, 80, 80)
+            v_atpTrack.BackgroundColor3 = Color3.fromRGB(80, 40, 40)
+            v_atpStatusLabel.Text = "Status: OFF"
+            v_atpStatusLabel.TextColor3 = Color3.fromRGB(180, 80, 80)
+            v_atpLabelOff.TextColor3 = Color3.fromRGB(180, 80, 80)
+            v_atpLabelOn.TextColor3 = Color3.fromRGB(100, 100, 120)
+            v31("Auto TP Round OFF", 3)
+        end
+    end)
+end
 
 v_atpToggleBtn.MouseButton1Click:Connect(function()
     pcall(function()
-        if v_autoTPRound.TargetWP == "" then
-            v31("⚠️ Pilih waypoint tujuan dulu di tab Waypoints!", 3)
+        if not v_autoTPRound.Enabled and v_autoTPRound.TargetWP == "" then
+            v31("⚠️ Isi nama waypoint tujuan dulu!", 3)
             return
         end
-        v_autoTPRound.Enabled = not v_autoTPRound.Enabled
-        v_lastPos = nil
-        if v_autoTPRound.Enabled then
-            v_atpToggleBtn.Text = "⏹ Matikan"
-            v_atpToggleBtn.BackgroundColor3 = Color3.fromRGB(160, 60, 60)
-            v_atpStatusLabel.Text = "Status: ON"
-            v_atpStatusLabel.TextColor3 = Color3.fromRGB(80, 200, 80)
-            v31("🔄 Auto TP Round ON → " .. v_autoTPRound.TargetWP, 3)
-        else
-            v_atpToggleBtn.Text = "▶ Aktifkan"
-            v_atpToggleBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 60)
-            v_atpStatusLabel.Text = "Status: OFF"
-            v_atpStatusLabel.TextColor3 = Color3.fromRGB(180, 80, 80)
-            v31("Auto TP Round OFF", 3)
-        end
+        v_atpSetToggle(not v_autoTPRound.Enabled)
     end)
 end)
 
@@ -732,10 +779,7 @@ local function v_resetATPUI()
     v_autoTPRound.Enabled = false
     v_lastPos = nil
     v_atpTargetLabel.Text = "Target: -"
-    v_atpStatusLabel.Text = "Status: OFF"
-    v_atpStatusLabel.TextColor3 = Color3.fromRGB(180, 80, 80)
-    v_atpToggleBtn.Text = "▶ Aktifkan"
-    v_atpToggleBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 60)
+    v_atpSetToggle(false)
 end
 
 local function v_wpMakeRow(p1)
