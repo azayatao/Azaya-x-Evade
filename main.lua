@@ -1,7 +1,7 @@
 -- https://lua.expert/
 --// Azaya GUI X - v4 | Evade Edition
 --// Xeno & Delta Compatible
---// Fix: crash removed, round detector pakai timer 3 menit
+--// Auto TP Round: deteksi posisi berubah > 50 studs
 
 --// Services
 local v1 = game:GetService("Players")
@@ -405,108 +405,51 @@ local function v_placeTeleporter(p1)
 end
 
 --// ============================================================
---// ROUND DETECTOR — TIMER BASED (3 menit per round)
---// Cara kerja:
---//   - CharacterAdded = sinyal round baru dimulai
---//   - Setelah 180 detik → fire RoundEnd otomatis
---//   - Jika karakter spawn lagi sebelum 180 detik → reset timer
+--// AUTO TP ROUND
+--// Deteksi posisi berubah > 50 studs dalam 1 frame = spawn baru
+--// Cooldown 3 detik supaya tidak fire berkali-kali
 --// ============================================================
 
-local v_onRoundStart = Instance.new("BindableEvent")
-local v_onRoundEnd   = Instance.new("BindableEvent")
-local v_roundTimer   = nil   -- thread timer aktif
-local v_roundActive  = false
-local v_roundDuration = 180  -- detik, bisa diubah via slider
-
-local function v_startRoundTimer()
-    -- Batalkan timer lama jika ada
-    if v_roundTimer then
-        task.cancel(v_roundTimer)
-        v_roundTimer = nil
-    end
-    v_roundActive = true
-    v_onRoundStart:Fire()
-
-    v_roundTimer = task.delay(v_roundDuration, function()
-        pcall(function()
-            v_roundActive = false
-            v_roundTimer = nil
-            v_onRoundEnd:Fire()
-        end)
-    end)
-end
-
--- Trigger: setiap karakter spawn = round baru
-v9.CharacterAdded:Connect(function()
-    task.wait(1.5) -- tunggu sebentar biar karakter fully loaded
-    pcall(function()
-        v_startRoundTimer()
-    end)
-end)
-
---// ============================================================
---// AUTO ROUND CONFIG
---// ============================================================
-
-local v_autoRound = {
-    Enabled      = false,
-    AutoTP       = false,
-    AutoFly      = false,
-    AutoFarm     = false,
-    AutoRevive   = false,
-    TargetWP     = "",
-    DelaySeconds = 2,
+local v_autoTPRound = {
+    Enabled  = false,
+    TargetWP = "",
 }
 
--- Round Start: jalankan semua aksi yang diaktifkan
-v_onRoundStart.Event:Connect(function()
+local v_lastPos    = nil
+local v_tpCooldown = false
+
+v2.Heartbeat:Connect(function()
     pcall(function()
-        if not v_autoRound.Enabled then return end
-        task.wait(v_autoRound.DelaySeconds)
+        if not v_autoTPRound.Enabled then return end
+        if v_tpCooldown then return end
+        if v_autoTPRound.TargetWP == "" then return end
 
-        if v_autoRound.AutoFly then
-            v33(true)
-            v31("🔄 Round Start → Fly ON")
-        end
+        local _, _, r = v27()
+        if not r then v_lastPos = nil return end
 
-        if v_autoRound.AutoFarm then
-            v17 = true
-            v31("🔄 Round Start → Auto Farm ON")
-        end
+        local v_curPos = r.Position
 
-        if v_autoRound.AutoRevive then
-            v18 = true
-            v31("🔄 Round Start → Auto Revive ON")
-        end
+        if v_lastPos then
+            local v_delta = (v_curPos - v_lastPos).Magnitude
+            if v_delta > 50 then
+                v_tpCooldown = true
+                task.delay(3, function() v_tpCooldown = false end)
 
-        if v_autoRound.AutoTP and v_autoRound.TargetWP ~= "" then
-            local _, _, r = v27()
-            if r then
-                local pos = v_wpData[v_autoRound.TargetWP]
-                if pos then
-                    r.CFrame = CFrame.new(pos)
-                    v31("🔄 Round Start → TP ke: " .. v_autoRound.TargetWP)
+                local v_dest = v_wpData[v_autoTPRound.TargetWP]
+                if v_dest then
+                    task.wait(0.5)
+                    local _, _, r2 = v27()
+                    if r2 then
+                        r2.CFrame = CFrame.new(v_dest)
+                        v31("🔄 Round baru! TP ke: " .. v_autoTPRound.TargetWP, 3)
+                    end
                 else
-                    v31("⚠️ Waypoint '" .. v_autoRound.TargetWP .. "' tidak ditemukan!")
+                    v31("⚠️ Waypoint '" .. v_autoTPRound.TargetWP .. "' tidak ditemukan!", 3)
                 end
             end
         end
-    end)
-end)
 
--- Round End: matikan fitur farming
-v_onRoundEnd.Event:Connect(function()
-    pcall(function()
-        if not v_autoRound.Enabled then return end
-        if v_autoRound.AutoFarm then
-            v17 = false
-            v31("🔄 Round End → Auto Farm OFF")
-        end
-        if v_autoRound.AutoRevive then
-            v18 = false
-            v31("🔄 Round End → Auto Revive OFF")
-        end
-        v31("⏱️ Round selesai (timer habis)", 3)
+        v_lastPos = v_curPos
     end)
 end)
 
@@ -600,114 +543,6 @@ v97:CreateButton({ Name = "Clear ESP", Callback = function()
 end })
 
 --// ============================================================
---// TAB: AUTO ROUND
---// ============================================================
-
-local v_tabRound = v91:CreateTab("🔄 Auto Round", nil)
-
-v_tabRound:CreateSection("⚙️ Master Switch")
-
-v_tabRound:CreateToggle({
-    Name = "Enable Auto Round",
-    CurrentValue = false,
-    Flag = "ToggleAutoRound",
-    Callback = function(p1)
-        v_autoRound.Enabled = p1
-        if p1 then
-            v31("🔄 Auto Round aktif!\nMenunggu spawn berikutnya...", 4)
-        else
-            v31("Auto Round dimatikan")
-        end
-    end
-})
-
-v_tabRound:CreateSection("🚀 Aksi saat Round Start")
-
-v_tabRound:CreateToggle({
-    Name = "Auto Fly",
-    CurrentValue = false,
-    Flag = "ToggleRoundFly",
-    Callback = function(p1) v_autoRound.AutoFly = p1 end
-})
-
-v_tabRound:CreateToggle({
-    Name = "Auto Farm Win",
-    CurrentValue = false,
-    Flag = "ToggleRoundFarm",
-    Callback = function(p1) v_autoRound.AutoFarm = p1 end
-})
-
-v_tabRound:CreateToggle({
-    Name = "Auto Revive",
-    CurrentValue = false,
-    Flag = "ToggleRoundRevive",
-    Callback = function(p1) v_autoRound.AutoRevive = p1 end
-})
-
-v_tabRound:CreateToggle({
-    Name = "Auto TP ke Waypoint",
-    CurrentValue = false,
-    Flag = "ToggleRoundTP",
-    Callback = function(p1) v_autoRound.AutoTP = p1 end
-})
-
-v_tabRound:CreateSection("📍 Target Waypoint")
-
-v_tabRound:CreateLabel("Isi nama waypoint yang sudah disimpan di tab Waypoints.")
-
-v_tabRound:CreateInput({
-    Name = "Nama Waypoint Tujuan",
-    PlaceholderText = "Contoh: Spawn, Rooftop...",
-    RemoveTextAfterFocusLost = false,
-    Flag = "InputRoundWP",
-    Callback = function(p1) v_autoRound.TargetWP = p1 end
-})
-
-v_tabRound:CreateSection("⏱️ Timer Setting")
-
-v_tabRound:CreateLabel("Evade = 3 menit per round. Ubah jika berbeda.")
-
-v_tabRound:CreateSlider({
-    Name = "Durasi Round",
-    Range = {60, 300},
-    Increment = 5,
-    Suffix = " detik",
-    CurrentValue = 180,
-    Flag = "SliderRoundDuration",
-    Callback = function(p1) v_roundDuration = p1 end
-})
-
-v_tabRound:CreateSlider({
-    Name = "Delay setelah Spawn",
-    Range = {0, 10},
-    Increment = 0.5,
-    Suffix = " detik",
-    CurrentValue = 2,
-    Flag = "SliderRoundDelay",
-    Callback = function(p1) v_autoRound.DelaySeconds = p1 end
-})
-
-v_tabRound:CreateSection("🧪 Test Manual")
-
-v_tabRound:CreateButton({
-    Name = "🔥 Simulasi Round Start",
-    Callback = function()
-        v_startRoundTimer()
-        v31("🔥 Round Start disimulasikan!", 3)
-    end
-})
-
-v_tabRound:CreateButton({
-    Name = "🔥 Simulasi Round End",
-    Callback = function()
-        if v_roundTimer then task.cancel(v_roundTimer) v_roundTimer = nil end
-        v_roundActive = false
-        v_onRoundEnd:Fire()
-        v31("🔥 Round End disimulasikan!", 3)
-    end
-})
-
---// ============================================================
 --// CUSTOM WAYPOINT LIST GUI
 --// ============================================================
 
@@ -717,6 +552,7 @@ v_wpGui.ResetOnSpawn = false
 v_wpGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 v_wpGui.Parent = v8
 
+--// Panel Waypoint List
 local v_wpFrame = Instance.new("Frame")
 v_wpFrame.Name = "WPFrame"
 v_wpFrame.Size = UDim2.new(0, 260, 0, 280)
@@ -726,27 +562,20 @@ v_wpFrame.BorderSizePixel = 0
 v_wpFrame.Visible = false
 v_wpFrame.Parent = v_wpGui
 
-local v_wpCorner = Instance.new("UICorner")
-v_wpCorner.CornerRadius = UDim.new(0, 8)
-v_wpCorner.Parent = v_wpFrame
+Instance.new("UICorner", v_wpFrame).CornerRadius = UDim.new(0, 8)
 
-local v_wpStroke = Instance.new("UIStroke")
+local v_wpStroke = Instance.new("UIStroke", v_wpFrame)
 v_wpStroke.Color = Color3.fromRGB(70, 70, 90)
 v_wpStroke.Thickness = 1
-v_wpStroke.Parent = v_wpFrame
 
-local v_wpHeader = Instance.new("Frame")
+local v_wpHeader = Instance.new("Frame", v_wpFrame)
 v_wpHeader.Size = UDim2.new(1, 0, 0, 32)
 v_wpHeader.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
 v_wpHeader.BorderSizePixel = 0
-v_wpHeader.Parent = v_wpFrame
+Instance.new("UICorner", v_wpHeader).CornerRadius = UDim.new(0, 8)
 
-local v_wpHCorner = Instance.new("UICorner")
-v_wpHCorner.CornerRadius = UDim.new(0, 8)
-v_wpHCorner.Parent = v_wpHeader
-
-local v_wpTitle = Instance.new("TextLabel")
-v_wpTitle.Size = UDim2.new(1, -10, 1, 0)
+local v_wpTitle = Instance.new("TextLabel", v_wpHeader)
+v_wpTitle.Size = UDim2.new(0.6, 0, 1, 0)
 v_wpTitle.Position = UDim2.new(0, 10, 0, 0)
 v_wpTitle.BackgroundTransparency = 1
 v_wpTitle.Text = "📍 Waypoint List"
@@ -754,21 +583,18 @@ v_wpTitle.TextColor3 = Color3.fromRGB(220, 220, 240)
 v_wpTitle.TextSize = 13
 v_wpTitle.Font = Enum.Font.GothamBold
 v_wpTitle.TextXAlignment = Enum.TextXAlignment.Left
-v_wpTitle.Parent = v_wpHeader
 
-local v_wpModeLabel = Instance.new("TextLabel")
-v_wpModeLabel.Size = UDim2.new(1, -10, 1, 0)
-v_wpModeLabel.Position = UDim2.new(0, 0, 0, 0)
+local v_wpModeLabel = Instance.new("TextLabel", v_wpHeader)
+v_wpModeLabel.Size = UDim2.new(0.4, -10, 1, 0)
+v_wpModeLabel.Position = UDim2.new(0.6, 0, 0, 0)
 v_wpModeLabel.BackgroundTransparency = 1
 v_wpModeLabel.Text = "Mode: TP"
 v_wpModeLabel.TextColor3 = Color3.fromRGB(120, 200, 255)
 v_wpModeLabel.TextSize = 11
 v_wpModeLabel.Font = Enum.Font.Gotham
 v_wpModeLabel.TextXAlignment = Enum.TextXAlignment.Right
-v_wpModeLabel.Size = UDim2.new(1, -10, 1, 0)
-v_wpModeLabel.Parent = v_wpHeader
 
-local v_wpScroll = Instance.new("ScrollingFrame")
+local v_wpScroll = Instance.new("ScrollingFrame", v_wpFrame)
 v_wpScroll.Size = UDim2.new(1, -10, 1, -42)
 v_wpScroll.Position = UDim2.new(0, 5, 0, 37)
 v_wpScroll.BackgroundTransparency = 1
@@ -777,35 +603,152 @@ v_wpScroll.ScrollBarThickness = 3
 v_wpScroll.ScrollBarImageColor3 = Color3.fromRGB(100, 100, 140)
 v_wpScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 v_wpScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-v_wpScroll.Parent = v_wpFrame
 
-local v_wpList = Instance.new("UIListLayout")
+local v_wpList = Instance.new("UIListLayout", v_wpScroll)
 v_wpList.SortOrder = Enum.SortOrder.LayoutOrder
 v_wpList.Padding = UDim.new(0, 4)
-v_wpList.Parent = v_wpScroll
 
-local v_wpPad = Instance.new("UIPadding")
+local v_wpPad = Instance.new("UIPadding", v_wpScroll)
 v_wpPad.PaddingTop = UDim.new(0, 4)
-v_wpPad.Parent = v_wpScroll
+
+--// ============================================================
+--// PANEL AUTO TP ROUND (floating)
+--// ============================================================
+
+local v_atpFrame = Instance.new("Frame", v_wpGui)
+v_atpFrame.Name = "ATPFrame"
+v_atpFrame.Size = UDim2.new(0, 240, 0, 115)
+v_atpFrame.Position = UDim2.new(0.5, 140, 0.5, 20)
+v_atpFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+v_atpFrame.BorderSizePixel = 0
+v_atpFrame.Visible = false
+Instance.new("UICorner", v_atpFrame).CornerRadius = UDim.new(0, 8)
+
+local v_atpStroke = Instance.new("UIStroke", v_atpFrame)
+v_atpStroke.Color = Color3.fromRGB(70, 70, 90)
+v_atpStroke.Thickness = 1
+
+--// Header
+local v_atpHeader = Instance.new("Frame", v_atpFrame)
+v_atpHeader.Size = UDim2.new(1, 0, 0, 32)
+v_atpHeader.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+v_atpHeader.BorderSizePixel = 0
+Instance.new("UICorner", v_atpHeader).CornerRadius = UDim.new(0, 8)
+
+local v_atpTitleLabel = Instance.new("TextLabel", v_atpHeader)
+v_atpTitleLabel.Size = UDim2.new(1, -10, 1, 0)
+v_atpTitleLabel.Position = UDim2.new(0, 10, 0, 0)
+v_atpTitleLabel.BackgroundTransparency = 1
+v_atpTitleLabel.Text = "🔄 Auto TP Round"
+v_atpTitleLabel.TextColor3 = Color3.fromRGB(220, 220, 240)
+v_atpTitleLabel.TextSize = 13
+v_atpTitleLabel.Font = Enum.Font.GothamBold
+v_atpTitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+--// Status
+local v_atpStatusLabel = Instance.new("TextLabel", v_atpFrame)
+v_atpStatusLabel.Size = UDim2.new(1, -10, 0, 20)
+v_atpStatusLabel.Position = UDim2.new(0, 10, 0, 38)
+v_atpStatusLabel.BackgroundTransparency = 1
+v_atpStatusLabel.Text = "Status: OFF"
+v_atpStatusLabel.TextColor3 = Color3.fromRGB(180, 80, 80)
+v_atpStatusLabel.TextSize = 12
+v_atpStatusLabel.Font = Enum.Font.GothamBold
+v_atpStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+--// Target
+local v_atpTargetLabel = Instance.new("TextLabel", v_atpFrame)
+v_atpTargetLabel.Size = UDim2.new(1, -10, 0, 16)
+v_atpTargetLabel.Position = UDim2.new(0, 10, 0, 58)
+v_atpTargetLabel.BackgroundTransparency = 1
+v_atpTargetLabel.Text = "Target: -"
+v_atpTargetLabel.TextColor3 = Color3.fromRGB(150, 150, 170)
+v_atpTargetLabel.TextSize = 11
+v_atpTargetLabel.Font = Enum.Font.Gotham
+v_atpTargetLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+--// Tombol toggle
+local v_atpToggleBtn = Instance.new("TextButton", v_atpFrame)
+v_atpToggleBtn.Size = UDim2.new(1, -20, 0, 28)
+v_atpToggleBtn.Position = UDim2.new(0, 10, 0, 78)
+v_atpToggleBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 60)
+v_atpToggleBtn.BorderSizePixel = 0
+v_atpToggleBtn.Text = "▶ Aktifkan"
+v_atpToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+v_atpToggleBtn.TextSize = 12
+v_atpToggleBtn.Font = Enum.Font.GothamBold
+Instance.new("UICorner", v_atpToggleBtn).CornerRadius = UDim.new(0, 6)
+
+v_atpToggleBtn.MouseButton1Click:Connect(function()
+    pcall(function()
+        if v_autoTPRound.TargetWP == "" then
+            v31("⚠️ Pilih waypoint tujuan dulu di tab Waypoints!", 3)
+            return
+        end
+        v_autoTPRound.Enabled = not v_autoTPRound.Enabled
+        v_lastPos = nil
+        if v_autoTPRound.Enabled then
+            v_atpToggleBtn.Text = "⏹ Matikan"
+            v_atpToggleBtn.BackgroundColor3 = Color3.fromRGB(160, 60, 60)
+            v_atpStatusLabel.Text = "Status: ON"
+            v_atpStatusLabel.TextColor3 = Color3.fromRGB(80, 200, 80)
+            v31("🔄 Auto TP Round ON → " .. v_autoTPRound.TargetWP, 3)
+        else
+            v_atpToggleBtn.Text = "▶ Aktifkan"
+            v_atpToggleBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 60)
+            v_atpStatusLabel.Text = "Status: OFF"
+            v_atpStatusLabel.TextColor3 = Color3.fromRGB(180, 80, 80)
+            v31("Auto TP Round OFF", 3)
+        end
+    end)
+end)
+
+--// Draggable ATP panel
+local v_atpDragging, v_atpDragStart, v_atpStartPos = false, nil, nil
+
+v_atpHeader.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        v_atpDragging = true
+        v_atpDragStart = input.Position
+        v_atpStartPos = v_atpFrame.Position
+    end
+end)
+
+v_atpHeader.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        v_atpDragging = false
+    end
+end)
+
+--// ============================================================
+--// WAYPOINT ROWS
+--// ============================================================
 
 local v_wpMode = "tp"
 local v_wpRows = {}
 
+local function v_resetATPUI()
+    v_autoTPRound.TargetWP = ""
+    v_autoTPRound.Enabled = false
+    v_lastPos = nil
+    v_atpTargetLabel.Text = "Target: -"
+    v_atpStatusLabel.Text = "Status: OFF"
+    v_atpStatusLabel.TextColor3 = Color3.fromRGB(180, 80, 80)
+    v_atpToggleBtn.Text = "▶ Aktifkan"
+    v_atpToggleBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 60)
+end
+
 local function v_wpMakeRow(p1)
     if v_wpRows[p1] then return end
 
-    local v_row = Instance.new("Frame")
+    local v_row = Instance.new("Frame", v_wpScroll)
     v_row.Name = "WP_" .. p1
     v_row.Size = UDim2.new(1, 0, 0, 36)
     v_row.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
     v_row.BorderSizePixel = 0
-    v_row.Parent = v_wpScroll
+    Instance.new("UICorner", v_row).CornerRadius = UDim.new(0, 6)
 
-    local v_rowCorner = Instance.new("UICorner")
-    v_rowCorner.CornerRadius = UDim.new(0, 6)
-    v_rowCorner.Parent = v_row
-
-    local v_nameLabel = Instance.new("TextLabel")
+    local v_nameLabel = Instance.new("TextLabel", v_row)
     v_nameLabel.Size = UDim2.new(1, -80, 1, 0)
     v_nameLabel.Position = UDim2.new(0, 10, 0, 0)
     v_nameLabel.BackgroundTransparency = 1
@@ -815,9 +758,8 @@ local function v_wpMakeRow(p1)
     v_nameLabel.Font = Enum.Font.Gotham
     v_nameLabel.TextXAlignment = Enum.TextXAlignment.Left
     v_nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-    v_nameLabel.Parent = v_row
 
-    local v_actBtn = Instance.new("TextButton")
+    local v_actBtn = Instance.new("TextButton", v_row)
     v_actBtn.Size = UDim2.new(0, 46, 0, 24)
     v_actBtn.Position = UDim2.new(1, -78, 0.5, -12)
     v_actBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 200)
@@ -826,13 +768,9 @@ local function v_wpMakeRow(p1)
     v_actBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
     v_actBtn.TextSize = 11
     v_actBtn.Font = Enum.Font.GothamBold
-    v_actBtn.Parent = v_row
+    Instance.new("UICorner", v_actBtn).CornerRadius = UDim.new(0, 5)
 
-    local v_actCorner = Instance.new("UICorner")
-    v_actCorner.CornerRadius = UDim.new(0, 5)
-    v_actCorner.Parent = v_actBtn
-
-    local v_delBtn = Instance.new("TextButton")
+    local v_delBtn = Instance.new("TextButton", v_row)
     v_delBtn.Size = UDim2.new(0, 24, 0, 24)
     v_delBtn.Position = UDim2.new(1, -28, 0.5, -12)
     v_delBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
@@ -841,11 +779,7 @@ local function v_wpMakeRow(p1)
     v_delBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
     v_delBtn.TextSize = 11
     v_delBtn.Font = Enum.Font.GothamBold
-    v_delBtn.Parent = v_row
-
-    local v_delCorner = Instance.new("UICorner")
-    v_delCorner.CornerRadius = UDim.new(0, 5)
-    v_delCorner.Parent = v_delBtn
+    Instance.new("UICorner", v_delBtn).CornerRadius = UDim.new(0, 5)
 
     v_actBtn.MouseButton1Click:Connect(function()
         pcall(function()
@@ -867,6 +801,9 @@ local function v_wpMakeRow(p1)
             v_wpDelete(p1)
             v_row:Destroy()
             v_wpRows[p1] = nil
+            if v_autoTPRound.TargetWP == p1 then
+                v_resetATPUI()
+            end
             v31("🗑️ '" .. p1 .. "' dihapus")
         end)
     end)
@@ -875,7 +812,7 @@ local function v_wpMakeRow(p1)
 end
 
 local function v_wpRefreshMode()
-    for name, row in pairs(v_wpRows) do
+    for _, row in pairs(v_wpRows) do
         for _, child in pairs(row:GetChildren()) do
             if child:IsA("TextButton") and child.Text ~= "✕" then
                 if v_wpMode == "tp" then
@@ -897,10 +834,8 @@ local function v_wpRefreshMode()
     end
 end
 
---// Draggable
-local v_dragging = false
-local v_dragStart = nil
-local v_startPos = nil
+--// Draggable panel Waypoint
+local v_dragging, v_dragStart, v_startPos = false, nil, nil
 
 v_wpHeader.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -917,14 +852,21 @@ v_wpHeader.InputEnded:Connect(function(input)
 end)
 
 v3.InputChanged:Connect(function(input)
-    if v_dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-        local delta = input.Position - v_dragStart
-        v_wpFrame.Position = UDim2.new(
-            v_startPos.X.Scale,
-            v_startPos.X.Offset + delta.X,
-            v_startPos.Y.Scale,
-            v_startPos.Y.Offset + delta.Y
-        )
+    if input.UserInputType == Enum.UserInputType.MouseMovement then
+        if v_dragging and v_dragStart then
+            local delta = input.Position - v_dragStart
+            v_wpFrame.Position = UDim2.new(
+                v_startPos.X.Scale, v_startPos.X.Offset + delta.X,
+                v_startPos.Y.Scale, v_startPos.Y.Offset + delta.Y
+            )
+        end
+        if v_atpDragging and v_atpDragStart then
+            local delta = input.Position - v_atpDragStart
+            v_atpFrame.Position = UDim2.new(
+                v_atpStartPos.X.Scale, v_atpStartPos.X.Offset + delta.X,
+                v_atpStartPos.Y.Scale, v_atpStartPos.Y.Offset + delta.Y
+            )
+        end
     end
 end)
 
@@ -971,16 +913,34 @@ v99:CreateButton({ Name = "📋  Tampilkan / Sembunyikan List", Callback = funct
     v_wpFrame.Visible = not v_wpFrame.Visible
 end })
 
+v99:CreateSection("🔄 Auto TP Round")
+v99:CreateLabel("Ketik nama waypoint tujuan, lalu buka panel dan aktifkan.")
+v99:CreateLabel("Deteksi: posisi berubah > 50 studs = round baru.")
+
+v99:CreateInput({
+    Name = "Waypoint Tujuan Auto TP",
+    PlaceholderText = "Nama waypoint yang sudah disimpan...",
+    RemoveTextAfterFocusLost = false,
+    Flag = "InputATPWaypoint",
+    Callback = function(p1)
+        v_autoTPRound.TargetWP = p1
+        v_atpTargetLabel.Text = "Target: " .. (p1 ~= "" and p1 or "-")
+    end,
+})
+
+v99:CreateButton({ Name = "🔄  Tampilkan / Sembunyikan Panel Auto TP", Callback = function()
+    v_atpFrame.Visible = not v_atpFrame.Visible
+end })
+
 v99:CreateSection("🗑️ Clear All")
 v99:CreateButton({ Name = "🧹  Clear All Waypoints", Callback = function()
     pcall(function()
-        for name, row in pairs(v_wpRows) do
-            row:Destroy()
-        end
+        for _, row in pairs(v_wpRows) do row:Destroy() end
         v_wpRows = {}
         v_wpData = {}
         v_wpOrder = {}
         v_wpSave()
+        v_resetATPUI()
         v31("🧹 Semua waypoint dihapus.", 4)
     end)
 end })
