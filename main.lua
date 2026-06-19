@@ -425,13 +425,19 @@ local function v_doAutoTPRound()
     pcall(function()
         if not v_autoTPRound.Enabled then return end
         if v_autoTPRound.TargetWP == "" then return end
-        task.wait(0.8)
-        if not v_autoTPRound.Enabled then return end
-        local _, _, r = v27()
-        if not r then return end
+
+        -- Retry singkat: saat map baru, character mungkin belum sepenuhnya respawn
+        local v_root = nil
+        for v_try = 1, 10 do
+            local _, _, r = v27()
+            if r then v_root = r break end
+            task.wait(0.3)
+        end
+        if not v_root then return end
+
         local v_dest = v_wpData[v_autoTPRound.TargetWP]
         if v_dest then
-            r.CFrame = CFrame.new(v_dest)
+            v_root.CFrame = CFrame.new(v_dest)
             v31("🔄 Round baru! TP ke: " .. v_autoTPRound.TargetWP, 3)
         else
             v31("⚠️ Waypoint '" .. v_autoTPRound.TargetWP .. "' tidak ditemukan!", 3)
@@ -439,28 +445,20 @@ local function v_doAutoTPRound()
     end)
 end
 
---// Hook ke RoundOverlay.Round.Visible — retry kalau GUI belum ready
-task.spawn(function()
-    local v_roundFrame = nil
-    pcall(function()
-        local v_playerGui = v9:WaitForChild("PlayerGui")
-        local v_shared = v_playerGui:WaitForChild("Shared", 10)
-        if not v_shared then return end
-        local v_hud = v_shared:WaitForChild("HUD", 10)
-        local v_overlay = v_hud:WaitForChild("Overlay", 10)
-        local v_default = v_overlay:WaitForChild("Default", 10)
-        local v_roundOverlay = v_default:WaitForChild("RoundOverlay", 10)
-        v_roundFrame = v_roundOverlay:WaitForChild("Round", 10)
-    end)
-
-    if v_roundFrame then
-        v_roundFrame:GetPropertyChangedSignal("Visible"):Connect(function()
-            if v_roundFrame.Visible then
-                v_doAutoTPRound()
-            end
+--// Hook ke RemoteEvent Events.Map.UpdateMap
+--// Terkonfirmasi via testing: remote ini FIRE setiap kali round baru mulai.
+--//   UpdateMap -> false : round baru (map yang sama)
+--//   UpdateMap -> true  : map baru (otomatis round 1)
+--// 1 map terdiri dari 3 round, jadi pola fire-nya: true, false, false, true, false, false, ...
+--// Keduanya (true/false) sama-sama berarti "round baru mulai", jadi kita TP di setiap fire.
+pcall(function()
+    local v_updateMapRemote = v4:WaitForChild("Events", 10):WaitForChild("Map", 10):WaitForChild("UpdateMap", 10)
+    if v_updateMapRemote then
+        v_updateMapRemote.OnClientEvent:Connect(function(...)
+            v_doAutoTPRound()
         end)
     else
-        v31("⚠️ RoundOverlay tidak ditemukan, Auto TP Round mungkin tidak akurat", 4)
+        v31("⚠️ UpdateMap remote tidak ditemukan, Auto TP Round mungkin tidak akurat", 4)
     end
 end)
 
