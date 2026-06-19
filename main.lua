@@ -1,8 +1,8 @@
 -- https://lua.expert/
---// Azaya GUI X - v5 | Evade Edition
+--// Azaya GUI X - v6 | Evade Edition
 --// Xeno & Delta Compatible
---// Auto TP Round: deteksi via RoundOverlay.Round.Visible (bukan CharacterAdded)
---// Auto Hide Round UI: Leaderboard & Rewards otomatis disembunyikan
+--// Auto TP Round: trigger via UpdateMap remote (terkonfirmasi fire per round)
+--// v6: delay fix + dropdown waypoint selector untuk Auto TP Round
 
 --// Services
 local v1 = game:GetService("Players")
@@ -406,14 +406,10 @@ local function v_placeTeleporter(p1)
 end
 
 --// ============================================================
---// AUTO TP ROUND  (FIXED)
---// Trigger lama (CharacterAdded) salah: itu fire saat MAP baru / respawn,
---// bukan saat ROUND baru dalam map yang sama.
---//
---// Trigger baru: pantau Visible dari
---// Shared.HUD.Overlay.Default.RoundOverlay.Round
---// Frame ini muncul (Visible = true) setiap kali round baru dimulai,
---// termasuk round ke-2, ke-3, dst dalam map yang sama.
+--// AUTO TP ROUND
+--// v6 FIX: delay 2.5s setelah UpdateMap fire sebelum TP
+--// Ini karena saat map baru, server teleport karakter ke spawn dulu (~1-2s),
+--// lalu kita teleport ke waypoint. Kalau terlalu cepat, TP kita di-override spawn.
 --// ============================================================
 
 local v_autoTPRound = {
@@ -426,14 +422,22 @@ local function v_doAutoTPRound()
         if not v_autoTPRound.Enabled then return end
         if v_autoTPRound.TargetWP == "" then return end
 
-        -- Retry singkat: saat map baru, character mungkin belum sepenuhnya respawn
+        -- Tunggu karakter siap dulu (spawn/respawn setelah round baru)
+        task.wait(2.5)
+
+        if not v_autoTPRound.Enabled then return end -- cek lagi setelah delay
+
+        -- Retry ambil HRP
         local v_root = nil
-        for v_try = 1, 10 do
+        for v_try = 1, 15 do
             local _, _, r = v27()
             if r then v_root = r break end
             task.wait(0.3)
         end
-        if not v_root then return end
+        if not v_root then
+            v31("⚠️ Auto TP: karakter tidak siap", 3)
+            return
+        end
 
         local v_dest = v_wpData[v_autoTPRound.TargetWP]
         if v_dest then
@@ -445,26 +449,19 @@ local function v_doAutoTPRound()
     end)
 end
 
---// Hook ke RemoteEvent Events.Map.UpdateMap
---// Terkonfirmasi via testing: remote ini FIRE setiap kali round baru mulai.
---//   UpdateMap -> false : round baru (map yang sama)
---//   UpdateMap -> true  : map baru (otomatis round 1)
---// 1 map terdiri dari 3 round, jadi pola fire-nya: true, false, false, true, false, false, ...
---// Keduanya (true/false) sama-sama berarti "round baru mulai", jadi kita TP di setiap fire.
 pcall(function()
     local v_updateMapRemote = v4:WaitForChild("Events", 10):WaitForChild("Map", 10):WaitForChild("UpdateMap", 10)
     if v_updateMapRemote then
         v_updateMapRemote.OnClientEvent:Connect(function(...)
-            v_doAutoTPRound()
+            task.spawn(v_doAutoTPRound) -- spawn supaya delay tidak block thread lain
         end)
     else
-        v31("⚠️ UpdateMap remote tidak ditemukan, Auto TP Round mungkin tidak akurat", 4)
+        v31("⚠️ UpdateMap remote tidak ditemukan", 4)
     end
 end)
 
 --// ============================================================
---// AUTO HIDE ROUND UI (Leaderboard & Rewards)
---// Otomatis menyembunyikan popup hasil round/map setelah muncul
+--// AUTO HIDE ROUND UI
 --// ============================================================
 
 local v_autoHideUI = false
@@ -502,7 +499,7 @@ local v90 = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local v91 = v90:CreateWindow({
     Name = "⚡ Azaya GUI X  •  Evade",
     LoadingTitle = "Azaya Interface Suite",
-    LoadingSubtitle = "by Azaya  •  v5",
+    LoadingSubtitle = "by Azaya  •  v6",
     ConfigurationSaving = { Enabled = true, FolderName = "AzayaGUI", FileName = "EvadeConfig" },
     Discord = { Enabled = false, Invite = "noinvitelink", RememberJoins = true },
     KeySystem = false
@@ -660,12 +657,12 @@ local v_wpPad = Instance.new("UIPadding", v_wpScroll)
 v_wpPad.PaddingTop = UDim.new(0, 4)
 
 --// ============================================================
---// PANEL AUTO TP ROUND (floating)
+--// PANEL AUTO TP ROUND (floating) - v6: dropdown selector
 --// ============================================================
 
 local v_atpFrame = Instance.new("Frame", v_wpGui)
 v_atpFrame.Name = "ATPFrame"
-v_atpFrame.Size = UDim2.new(0, 240, 0, 125)
+v_atpFrame.Size = UDim2.new(0, 260, 0, 200)
 v_atpFrame.Position = UDim2.new(0.5, 140, 0.5, 20)
 v_atpFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
 v_atpFrame.BorderSizePixel = 0
@@ -676,7 +673,6 @@ local v_atpStroke = Instance.new("UIStroke", v_atpFrame)
 v_atpStroke.Color = Color3.fromRGB(70, 70, 90)
 v_atpStroke.Thickness = 1
 
---// Header
 local v_atpHeader = Instance.new("Frame", v_atpFrame)
 v_atpHeader.Size = UDim2.new(1, 0, 0, 32)
 v_atpHeader.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
@@ -693,7 +689,7 @@ v_atpTitleLabel.TextSize = 13
 v_atpTitleLabel.Font = Enum.Font.GothamBold
 v_atpTitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 
---// Status
+--// Status label
 local v_atpStatusLabel = Instance.new("TextLabel", v_atpFrame)
 v_atpStatusLabel.Size = UDim2.new(1, -10, 0, 20)
 v_atpStatusLabel.Position = UDim2.new(0, 10, 0, 38)
@@ -704,7 +700,7 @@ v_atpStatusLabel.TextSize = 12
 v_atpStatusLabel.Font = Enum.Font.GothamBold
 v_atpStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
 
---// Target
+--// Target label
 local v_atpTargetLabel = Instance.new("TextLabel", v_atpFrame)
 v_atpTargetLabel.Size = UDim2.new(1, -10, 0, 16)
 v_atpTargetLabel.Position = UDim2.new(0, 10, 0, 58)
@@ -715,17 +711,145 @@ v_atpTargetLabel.TextSize = 11
 v_atpTargetLabel.Font = Enum.Font.Gotham
 v_atpTargetLabel.TextXAlignment = Enum.TextXAlignment.Left
 
---// Toggle geser (slider ON/OFF)
+--// ---- DROPDOWN SELECTOR ----
+local v_atpDDLabel = Instance.new("TextLabel", v_atpFrame)
+v_atpDDLabel.Size = UDim2.new(1, -10, 0, 16)
+v_atpDDLabel.Position = UDim2.new(0, 10, 0, 78)
+v_atpDDLabel.BackgroundTransparency = 1
+v_atpDDLabel.Text = "Pilih Waypoint:"
+v_atpDDLabel.TextColor3 = Color3.fromRGB(160, 160, 180)
+v_atpDDLabel.TextSize = 11
+v_atpDDLabel.Font = Enum.Font.Gotham
+v_atpDDLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Tombol dropdown (collapsed state)
+local v_atpDDBtn = Instance.new("TextButton", v_atpFrame)
+v_atpDDBtn.Size = UDim2.new(1, -20, 0, 28)
+v_atpDDBtn.Position = UDim2.new(0, 10, 0, 96)
+v_atpDDBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 58)
+v_atpDDBtn.BorderSizePixel = 0
+v_atpDDBtn.Text = "▾  (pilih waypoint)"
+v_atpDDBtn.TextColor3 = Color3.fromRGB(180, 180, 200)
+v_atpDDBtn.TextSize = 11
+v_atpDDBtn.Font = Enum.Font.Gotham
+v_atpDDBtn.TextXAlignment = Enum.TextXAlignment.Left
+Instance.new("UICorner", v_atpDDBtn).CornerRadius = UDim.new(0, 6)
+
+local v_atpDDBtnPad = Instance.new("UIPadding", v_atpDDBtn)
+v_atpDDBtnPad.PaddingLeft = UDim.new(0, 8)
+
+-- Panel dropdown list (popup di atas panel ATP)
+local v_atpDDPanel = Instance.new("Frame", v_wpGui)
+v_atpDDPanel.Name = "ATPDropdown"
+v_atpDDPanel.Size = UDim2.new(0, 240, 0, 0) -- tinggi diatur dinamis
+v_atpDDPanel.BackgroundColor3 = Color3.fromRGB(38, 38, 50)
+v_atpDDPanel.BorderSizePixel = 0
+v_atpDDPanel.Visible = false
+v_atpDDPanel.ZIndex = 20
+Instance.new("UICorner", v_atpDDPanel).CornerRadius = UDim.new(0, 6)
+
+local v_atpDDStroke = Instance.new("UIStroke", v_atpDDPanel)
+v_atpDDStroke.Color = Color3.fromRGB(80, 80, 110)
+v_atpDDStroke.Thickness = 1
+
+local v_atpDDScroll = Instance.new("ScrollingFrame", v_atpDDPanel)
+v_atpDDScroll.Size = UDim2.new(1, 0, 1, 0)
+v_atpDDScroll.BackgroundTransparency = 1
+v_atpDDScroll.BorderSizePixel = 0
+v_atpDDScroll.ScrollBarThickness = 3
+v_atpDDScroll.ScrollBarImageColor3 = Color3.fromRGB(100, 100, 140)
+v_atpDDScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+v_atpDDScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+v_atpDDScroll.ZIndex = 20
+
+local v_atpDDLayout = Instance.new("UIListLayout", v_atpDDScroll)
+v_atpDDLayout.SortOrder = Enum.SortOrder.LayoutOrder
+v_atpDDLayout.Padding = UDim.new(0, 2)
+
+local v_atpDDPad = Instance.new("UIPadding", v_atpDDScroll)
+v_atpDDPad.PaddingTop = UDim.new(0, 4)
+v_atpDDPad.PaddingBottom = UDim.new(0, 4)
+v_atpDDPad.PaddingLeft = UDim.new(0, 4)
+v_atpDDPad.PaddingRight = UDim.new(0, 4)
+
+local v_atpDDOpen = false
+
+local function v_atpDDClose()
+    v_atpDDOpen = false
+    v_atpDDPanel.Visible = false
+    v_atpDDBtn.Text = "▾  " .. (v_autoTPRound.TargetWP ~= "" and v_autoTPRound.TargetWP or "(pilih waypoint)")
+end
+
+local function v_atpDDRefresh()
+    -- Hapus item lama
+    for _, c in pairs(v_atpDDScroll:GetChildren()) do
+        if c:IsA("TextButton") then c:Destroy() end
+    end
+    -- Isi ulang dari v_wpOrder
+    for _, v_n in ipairs(v_wpOrder) do
+        local v_item = Instance.new("TextButton", v_atpDDScroll)
+        v_item.Size = UDim2.new(1, 0, 0, 28)
+        v_item.BackgroundColor3 = Color3.fromRGB(50, 50, 65)
+        v_item.BorderSizePixel = 0
+        v_item.Text = "📍 " .. v_n
+        v_item.TextColor3 = Color3.fromRGB(210, 210, 230)
+        v_item.TextSize = 11
+        v_item.Font = Enum.Font.Gotham
+        v_item.TextXAlignment = Enum.TextXAlignment.Left
+        v_item.ZIndex = 21
+        Instance.new("UICorner", v_item).CornerRadius = UDim.new(0, 4)
+        local v_pad = Instance.new("UIPadding", v_item)
+        v_pad.PaddingLeft = UDim.new(0, 8)
+        local v_captured = v_n
+        v_item.MouseButton1Click:Connect(function()
+            pcall(function()
+                v_autoTPRound.TargetWP = v_captured
+                v_atpTargetLabel.Text = "Target: " .. v_captured
+                v_atpDDClose()
+            end)
+        end)
+        -- Hover effect
+        v_item.MouseEnter:Connect(function()
+            pcall(function() v_item.BackgroundColor3 = Color3.fromRGB(65, 65, 85) end)
+        end)
+        v_item.MouseLeave:Connect(function()
+            pcall(function() v_item.BackgroundColor3 = Color3.fromRGB(50, 50, 65) end)
+        end)
+    end
+    -- Hitung tinggi panel (max 5 item = 160px, min 40px)
+    local v_count = #v_wpOrder
+    local v_h = math.min(math.max(v_count * 30 + 8, 40), 160)
+    v_atpDDPanel.Size = UDim2.new(0, 240, 0, v_h)
+end
+
+v_atpDDBtn.MouseButton1Click:Connect(function()
+    pcall(function()
+        if v_atpDDOpen then
+            v_atpDDClose()
+        else
+            v_atpDDRefresh()
+            -- Posisikan panel tepat di bawah tombol dropdown
+            local v_btnAbsPos = v_atpDDBtn.AbsolutePosition
+            local v_btnAbsSize = v_atpDDBtn.AbsoluteSize
+            v_atpDDPanel.Position = UDim2.new(0, v_btnAbsPos.X, 0, v_btnAbsPos.Y + v_btnAbsSize.Y + 2)
+            v_atpDDPanel.Visible = true
+            v_atpDDOpen = true
+            v_atpDDBtn.Text = "▴  " .. (v_autoTPRound.TargetWP ~= "" and v_autoTPRound.TargetWP or "(pilih waypoint)")
+        end
+    end)
+end)
+
+--// Toggle ON/OFF
 local v_atpTrack = Instance.new("Frame", v_atpFrame)
 v_atpTrack.Size = UDim2.new(0, 54, 0, 26)
-v_atpTrack.Position = UDim2.new(0.5, -27, 0, 88)
+v_atpTrack.Position = UDim2.new(0.5, -27, 0, 162)
 v_atpTrack.BackgroundColor3 = Color3.fromRGB(80, 40, 40)
 v_atpTrack.BorderSizePixel = 0
 Instance.new("UICorner", v_atpTrack).CornerRadius = UDim.new(1, 0)
 
 local v_atpLabelOff = Instance.new("TextLabel", v_atpFrame)
 v_atpLabelOff.Size = UDim2.new(0, 30, 0, 26)
-v_atpLabelOff.Position = UDim2.new(0.5, -27 - 34, 0, 88)
+v_atpLabelOff.Position = UDim2.new(0.5, -27 - 34, 0, 162)
 v_atpLabelOff.BackgroundTransparency = 1
 v_atpLabelOff.Text = "OFF"
 v_atpLabelOff.TextColor3 = Color3.fromRGB(180, 80, 80)
@@ -735,7 +859,7 @@ v_atpLabelOff.TextXAlignment = Enum.TextXAlignment.Right
 
 local v_atpLabelOn = Instance.new("TextLabel", v_atpFrame)
 v_atpLabelOn.Size = UDim2.new(0, 30, 0, 26)
-v_atpLabelOn.Position = UDim2.new(0.5, -27 + 58, 0, 88)
+v_atpLabelOn.Position = UDim2.new(0.5, -27 + 58, 0, 162)
 v_atpLabelOn.BackgroundTransparency = 1
 v_atpLabelOn.Text = "ON"
 v_atpLabelOn.TextColor3 = Color3.fromRGB(100, 100, 120)
@@ -783,7 +907,7 @@ end
 v_atpToggleBtn.MouseButton1Click:Connect(function()
     pcall(function()
         if not v_autoTPRound.Enabled and v_autoTPRound.TargetWP == "" then
-            v31("⚠️ Isi nama waypoint tujuan dulu!", 3)
+            v31("⚠️ Pilih waypoint tujuan dulu!", 3)
             return
         end
         v_atpSetToggle(not v_autoTPRound.Enabled)
@@ -818,6 +942,7 @@ local function v_resetATPUI()
     v_autoTPRound.TargetWP = ""
     v_autoTPRound.Enabled = false
     v_atpTargetLabel.Text = "Target: -"
+    v_atpDDBtn.Text = "▾  (pilih waypoint)"
     v_atpSetToggle(false)
 end
 
@@ -949,6 +1074,12 @@ v3.InputChanged:Connect(function(input)
                 v_atpStartPos.X.Scale, v_atpStartPos.X.Offset + delta.X,
                 v_atpStartPos.Y.Scale, v_atpStartPos.Y.Offset + delta.Y
             )
+            -- Update posisi dropdown kalau lagi buka
+            if v_atpDDOpen then
+                local v_btnAbsPos = v_atpDDBtn.AbsolutePosition
+                local v_btnAbsSize = v_atpDDBtn.AbsoluteSize
+                v_atpDDPanel.Position = UDim2.new(0, v_btnAbsPos.X, 0, v_btnAbsPos.Y + v_btnAbsSize.Y + 2)
+            end
         end
     end
 end)
@@ -987,32 +1118,23 @@ v99:CreateButton({ Name = "💾  Save Current Position", Callback = function()
 end })
 
 v99:CreateSection("📋 List Waypoint")
-v99:CreateLabel("Buka panel list dengan tombol di bawah.")
+v99:CreateLabel("Klik tombol untuk buka/tutup panel list.")
 
 v99:CreateButton({ Name = "📋  Tampilkan / Sembunyikan List", Callback = function()
     v_wpMode = "tp"
     v_wpRefreshMode()
     v_wpTitle.Text = "📍 Waypoint List  —  TP Mode"
     v_wpFrame.Visible = not v_wpFrame.Visible
+    if v_atpDDOpen then v_atpDDClose() end
 end })
 
 v99:CreateSection("🔄 Auto TP Round")
-v99:CreateLabel("Ketik nama waypoint tujuan, lalu buka panel dan aktifkan.")
-v99:CreateLabel("Deteksi: round baru via RoundOverlay (akurat per round, bukan per map).")
-
-v99:CreateInput({
-    Name = "Waypoint Tujuan Auto TP",
-    PlaceholderText = "Nama waypoint yang sudah disimpan...",
-    RemoveTextAfterFocusLost = false,
-    Flag = "InputATPWaypoint",
-    Callback = function(p1)
-        v_autoTPRound.TargetWP = p1
-        v_atpTargetLabel.Text = "Target: " .. (p1 ~= "" and p1 or "-")
-    end,
-})
+v99:CreateLabel("Pilih waypoint dari dropdown, lalu aktifkan di panel.")
+v99:CreateLabel("Delay 2.5s setelah round mulai sebelum TP (menghindari spawn override).")
 
 v99:CreateButton({ Name = "🔄  Tampilkan / Sembunyikan Panel Auto TP", Callback = function()
     v_atpFrame.Visible = not v_atpFrame.Visible
+    if not v_atpFrame.Visible and v_atpDDOpen then v_atpDDClose() end
 end })
 
 v99:CreateSection("🗑️ Clear All")
@@ -1057,4 +1179,4 @@ end
 --// NOTIFY LOADED
 --// ============================================================
 
-v31("⚡ Azaya GUI X v5 loaded!\n" .. #v_wpOrder .. " waypoint dimuat.\nAuto TP Round trigger sudah diperbaiki.", 5)
+v31("⚡ Azaya GUI X v6 loaded!\n" .. #v_wpOrder .. " waypoint dimuat.\nAuto TP Round: delay fix + dropdown selector.", 5)
