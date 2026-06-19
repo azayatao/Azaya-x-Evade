@@ -1,7 +1,8 @@
 -- https://lua.expert/
---// Azaya GUI X - v4 | Evade Edition
+--// Azaya GUI X - v5 | Evade Edition
 --// Xeno & Delta Compatible
---// Auto TP Round: deteksi posisi berubah > 50 studs
+--// Auto TP Round: deteksi via RoundOverlay.Round.Visible (bukan CharacterAdded)
+--// Auto Hide Round UI: Leaderboard & Rewards otomatis disembunyikan
 
 --// Services
 local v1 = game:GetService("Players")
@@ -405,8 +406,14 @@ local function v_placeTeleporter(p1)
 end
 
 --// ============================================================
---// AUTO TP ROUND
---// Deteksi via CharacterAdded = spawn baru = round baru
+--// AUTO TP ROUND  (FIXED)
+--// Trigger lama (CharacterAdded) salah: itu fire saat MAP baru / respawn,
+--// bukan saat ROUND baru dalam map yang sama.
+--//
+--// Trigger baru: pantau Visible dari
+--// Shared.HUD.Overlay.Default.RoundOverlay.Round
+--// Frame ini muncul (Visible = true) setiap kali round baru dimulai,
+--// termasuk round ke-2, ke-3, dst dalam map yang sama.
 --// ============================================================
 
 local v_autoTPRound = {
@@ -414,15 +421,14 @@ local v_autoTPRound = {
     TargetWP = "",
 }
 
-v9.CharacterAdded:Connect(function(p1)
+local function v_doAutoTPRound()
     pcall(function()
         if not v_autoTPRound.Enabled then return end
         if v_autoTPRound.TargetWP == "" then return end
-        local h = p1:WaitForChild("Humanoid", 5)
-        local r = p1:WaitForChild("HumanoidRootPart", 5)
-        if not h or not r then return end
         task.wait(0.8)
         if not v_autoTPRound.Enabled then return end
+        local _, _, r = v27()
+        if not r then return end
         local v_dest = v_wpData[v_autoTPRound.TargetWP]
         if v_dest then
             r.CFrame = CFrame.new(v_dest)
@@ -431,6 +437,62 @@ v9.CharacterAdded:Connect(function(p1)
             v31("⚠️ Waypoint '" .. v_autoTPRound.TargetWP .. "' tidak ditemukan!", 3)
         end
     end)
+end
+
+--// Hook ke RoundOverlay.Round.Visible — retry kalau GUI belum ready
+task.spawn(function()
+    local v_roundFrame = nil
+    pcall(function()
+        local v_playerGui = v9:WaitForChild("PlayerGui")
+        local v_shared = v_playerGui:WaitForChild("Shared", 10)
+        if not v_shared then return end
+        local v_hud = v_shared:WaitForChild("HUD", 10)
+        local v_overlay = v_hud:WaitForChild("Overlay", 10)
+        local v_default = v_overlay:WaitForChild("Default", 10)
+        local v_roundOverlay = v_default:WaitForChild("RoundOverlay", 10)
+        v_roundFrame = v_roundOverlay:WaitForChild("Round", 10)
+    end)
+
+    if v_roundFrame then
+        v_roundFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+            if v_roundFrame.Visible then
+                v_doAutoTPRound()
+            end
+        end)
+    else
+        v31("⚠️ RoundOverlay tidak ditemukan, Auto TP Round mungkin tidak akurat", 4)
+    end
+end)
+
+--// ============================================================
+--// AUTO HIDE ROUND UI (Leaderboard & Rewards)
+--// Otomatis menyembunyikan popup hasil round/map setelah muncul
+--// ============================================================
+
+local v_autoHideUI = false
+
+local function v_setupAutoHide(p1)
+    if not p1 then return end
+    p1:GetPropertyChangedSignal("Visible"):Connect(function()
+        if v_autoHideUI and p1.Visible then
+            task.wait(0.5)
+            pcall(function() p1.Visible = false end)
+        end
+    end)
+end
+
+task.spawn(function()
+    local v_leaderboardUI, v_rewardsUI = nil, nil
+    pcall(function()
+        local v_playerGui = v9:WaitForChild("PlayerGui")
+        local v_global = v_playerGui:WaitForChild("Global", 10)
+        if v_global then
+            v_leaderboardUI = v_global:WaitForChild("Leaderboard", 5)
+            v_rewardsUI = v_global:WaitForChild("Rewards", 5)
+        end
+    end)
+    v_setupAutoHide(v_leaderboardUI)
+    v_setupAutoHide(v_rewardsUI)
 end)
 
 --// ============================================================
@@ -442,7 +504,7 @@ local v90 = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local v91 = v90:CreateWindow({
     Name = "⚡ Azaya GUI X  •  Evade",
     LoadingTitle = "Azaya Interface Suite",
-    LoadingSubtitle = "by Azaya  •  v4",
+    LoadingSubtitle = "by Azaya  •  v5",
     ConfigurationSaving = { Enabled = true, FolderName = "AzayaGUI", FileName = "EvadeConfig" },
     Discord = { Enabled = false, Invite = "noinvitelink", RememberJoins = true },
     KeySystem = false
@@ -472,6 +534,14 @@ v92:CreateToggle({ Name = "Auto Respawn", CurrentValue = false, Flag = "ToggleRe
     Callback = function(p1) v21 = p1 end })
 
 v92:CreateButton({ Name = "Teleport Out of Map", Callback = function() v68() end })
+
+v92:CreateSection("🧹 Interface")
+
+v92:CreateToggle({ Name = "Auto Hide Round UI  (Leaderboard & Rewards)", CurrentValue = false, Flag = "ToggleAutoHideUI",
+    Callback = function(p1)
+        v_autoHideUI = p1
+        if p1 then v31("🧹 Auto Hide UI aktif") else v31("Auto Hide UI dimatikan") end
+    end })
 
 --// ============================================================
 --// TAB: AUTO FARM
@@ -648,7 +718,6 @@ v_atpTargetLabel.Font = Enum.Font.Gotham
 v_atpTargetLabel.TextXAlignment = Enum.TextXAlignment.Left
 
 --// Toggle geser (slider ON/OFF)
---// Track (background)
 local v_atpTrack = Instance.new("Frame", v_atpFrame)
 v_atpTrack.Size = UDim2.new(0, 54, 0, 26)
 v_atpTrack.Position = UDim2.new(0.5, -27, 0, 88)
@@ -656,7 +725,6 @@ v_atpTrack.BackgroundColor3 = Color3.fromRGB(80, 40, 40)
 v_atpTrack.BorderSizePixel = 0
 Instance.new("UICorner", v_atpTrack).CornerRadius = UDim.new(1, 0)
 
---// Label OFF (kiri)
 local v_atpLabelOff = Instance.new("TextLabel", v_atpFrame)
 v_atpLabelOff.Size = UDim2.new(0, 30, 0, 26)
 v_atpLabelOff.Position = UDim2.new(0.5, -27 - 34, 0, 88)
@@ -667,7 +735,6 @@ v_atpLabelOff.TextSize = 10
 v_atpLabelOff.Font = Enum.Font.GothamBold
 v_atpLabelOff.TextXAlignment = Enum.TextXAlignment.Right
 
---// Label ON (kanan)
 local v_atpLabelOn = Instance.new("TextLabel", v_atpFrame)
 v_atpLabelOn.Size = UDim2.new(0, 30, 0, 26)
 v_atpLabelOn.Position = UDim2.new(0.5, -27 + 58, 0, 88)
@@ -678,7 +745,6 @@ v_atpLabelOn.TextSize = 10
 v_atpLabelOn.Font = Enum.Font.GothamBold
 v_atpLabelOn.TextXAlignment = Enum.TextXAlignment.Left
 
---// Knob (bulatan geser)
 local v_atpKnob = Instance.new("Frame", v_atpTrack)
 v_atpKnob.Size = UDim2.new(0, 22, 0, 22)
 v_atpKnob.Position = UDim2.new(0, 2, 0.5, -11)
@@ -686,7 +752,6 @@ v_atpKnob.BackgroundColor3 = Color3.fromRGB(200, 80, 80)
 v_atpKnob.BorderSizePixel = 0
 Instance.new("UICorner", v_atpKnob).CornerRadius = UDim.new(1, 0)
 
---// Invisible button di atas track supaya bisa diklik
 local v_atpToggleBtn = Instance.new("TextButton", v_atpTrack)
 v_atpToggleBtn.Size = UDim2.new(1, 0, 1, 0)
 v_atpToggleBtn.BackgroundTransparency = 1
@@ -696,7 +761,6 @@ local function v_atpSetToggle(p1)
     pcall(function()
         v_autoTPRound.Enabled = p1
         if p1 then
-            -- Geser knob ke kanan (ON)
             v_atpKnob.Position = UDim2.new(1, -24, 0.5, -11)
             v_atpKnob.BackgroundColor3 = Color3.fromRGB(80, 200, 80)
             v_atpTrack.BackgroundColor3 = Color3.fromRGB(40, 100, 40)
@@ -706,7 +770,6 @@ local function v_atpSetToggle(p1)
             v_atpLabelOff.TextColor3 = Color3.fromRGB(100, 100, 120)
             v31("🔄 Auto TP Round ON → " .. v_autoTPRound.TargetWP, 3)
         else
-            -- Geser knob ke kiri (OFF)
             v_atpKnob.Position = UDim2.new(0, 2, 0.5, -11)
             v_atpKnob.BackgroundColor3 = Color3.fromRGB(200, 80, 80)
             v_atpTrack.BackgroundColor3 = Color3.fromRGB(80, 40, 40)
@@ -756,7 +819,6 @@ local v_wpRows = {}
 local function v_resetATPUI()
     v_autoTPRound.TargetWP = ""
     v_autoTPRound.Enabled = false
-    v_lastPos = nil
     v_atpTargetLabel.Text = "Target: -"
     v_atpSetToggle(false)
 end
@@ -938,7 +1000,7 @@ end })
 
 v99:CreateSection("🔄 Auto TP Round")
 v99:CreateLabel("Ketik nama waypoint tujuan, lalu buka panel dan aktifkan.")
-v99:CreateLabel("Deteksi: posisi berubah > 50 studs = round baru.")
+v99:CreateLabel("Deteksi: round baru via RoundOverlay (akurat per round, bukan per map).")
 
 v99:CreateInput({
     Name = "Waypoint Tujuan Auto TP",
@@ -997,4 +1059,4 @@ end
 --// NOTIFY LOADED
 --// ============================================================
 
-v31("⚡ Azaya GUI X v4 loaded!\n" .. #v_wpOrder .. " waypoint dimuat.", 4)
+v31("⚡ Azaya GUI X v5 loaded!\n" .. #v_wpOrder .. " waypoint dimuat.\nAuto TP Round trigger sudah diperbaiki.", 5)
